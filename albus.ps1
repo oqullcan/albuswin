@@ -77,6 +77,7 @@ function Set-Registry {
     }
 }
 
+<#
 $dest = "C:\Albus"
 if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Path $dest | Out-Null }
 
@@ -154,7 +155,7 @@ if (Test-Connection -ComputerName "8.8.8.8" -Count 1 -Quiet -ErrorAction Silentl
 } else {
     Status "network interface unresponsive. bypassing payload retrieval." "fail"
 }
-
+#>
 # =============================================================================================================================================================================
 
 Status "executing registry optimization engine..." "step"
@@ -916,18 +917,34 @@ if (Test-Path $SettingsDat) {
 Status "deploying albus ultimate power policy..." "step"
 
 # Ultimate Power Plan
-$UltimateGUID = "99999999-9999-9999-9999-999999999999"
-powercfg /duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61 $UltimateGUID >$null 2>&1
-powercfg /changename $UltimateGUID "Albus Power Scheme" >$null 2>&1
-powercfg /setactive $UltimateGUID >$null 2>&1
-# Purge other plans
-$AllPlans = (powercfg /L) | Where-Object { $_ -match ':' } | ForEach-Object {
-    if ($_ -match 'GUID:\s+([a-fA-F0-9-]+)') { $Matches[1] }
-}
-foreach ($P in $AllPlans) {
-    if ($P -ne $UltimateGUID) { powercfg /delete $P >$null 2>&1 }
+$BaseGUID = "e9a42b02-d5df-448d-aa00-03f14749eb61" # Ultimate
+if (-not (powercfg /L | Select-String $BaseGUID)) { $BaseGUID = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c" } # High Performance fallback
+if (-not (powercfg /L | Select-String $BaseGUID)) { $BaseGUID = "381b4222-f694-41f0-9685-ff5bb260df2e" } # Balanced fallback
+
+# Duplicating and capturing new GUID
+$NewPlanRaw = powercfg /duplicatescheme $BaseGUID | Out-String
+if ($NewPlanRaw -match 'GUID:\s+([a-f0-9-]+)') {
+    $AlbusGUID = $Matches[1]
+    powercfg /changename $AlbusGUID "Albus Power Scheme" *>$null
+    powercfg /setactive $AlbusGUID *>$null
 }
 
+# Fetch CURRENT active GUID to avoid "cannot be deleted" error
+$ActiveRaw = powercfg /getactivescheme | Out-String
+[string]$CurrentActive = ""
+if ($ActiveRaw -match 'GUID:\s+([a-f0-9-]+)') { $CurrentActive = $Matches[1] }
+
+# Purge other plans (Safe loop)
+if ($AlbusGUID) {
+    $AllPowerPlans = (powercfg /L) | Where-Object { $_ -match ':' } | ForEach-Object {
+        if ($_ -match 'GUID:\s+([a-f0-9-]+)') { $Matches[1] }
+    }
+    foreach ($P in $AllPowerPlans) {
+        if ($P -ne $AlbusGUID -and $P -ne $CurrentActive) {
+            powercfg /delete $P *>$null
+        }
+    }
+}
 
 
 # Global Power Tweaks
@@ -969,13 +986,36 @@ $PowerSettings = @(
     "2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 0",   # USB Selective Suspend
     "2a737441-1930-4402-8d77-b2bebba308a3 d4e98f31-5ffe-4ce1-be31-1b38b384c009 0"    # USB3 Link Power
 )
-foreach ($S in $PowerSettings) {
-    if ($S -match '^#') { continue }
-    $P = $S -split ' '
-    powercfg /setacvalueindex $UltimateGUID $P[0] $P[1] $P[2] >$null 2>&1
-    powercfg /setdcvalueindex $UltimateGUID $P[0] $P[1] $P[2] >$null 2>&1
+if ($AlbusGUID) {
+    # 1. Broad Power Settings
+    foreach ($S in $PowerSettings) {
+        if ($S -match '^#') { continue }
+        $P = $S -split ' '
+        powercfg /setacvalueindex $AlbusGUID $P[0] $P[1] $P[2] *>$null
+        powercfg /setdcvalueindex $AlbusGUID $P[0] $P[1] $P[2] *>$null
+    }
+
+    # 2. Advanced Hardware Performance Tweaks
+    $PowerTweaks = @(
+        "SUB_PROCESSOR 5d76a2ca-e8c1-4010-a44d-83840f5977d5 0", # Processor Performance Core Parking Min Cores
+        "SUB_PROCESSOR bc5038f7-23e0-4960-96da-33abaf5935ec 100", # Processor Performance Core Parking Max Cores
+        "SUB_PROCESSOR 06cadf0e-64ed-448a-8927-ce7bf90eb35d 0", # Processor Performance Core Parking Parking Performance State
+        "SUB_PROCESSOR 447235c7-4842-4595-ad2a-1c0e5510b159 0", # Processor Idle Disable
+        "SUB_PROCESSOR 893dee03-5242-4997-a44d-ef36649442f1 1", # Processor Performance Boost Mode (Aggressive)
+        "SUB_PCI ee12f906-d277-404b-b6da-e5fa1a576df5 0", # PCI Express Link State Power Management
+        "SUB_VIDEO aded5e09-b913-44d3-bc3f-7c55c0454442 0", # Monitor Timeout AC
+        "SUB_SLEEP 29f79bd2-1200-4fa4-8419-1b55a1239122 0"  # Allow Hybrid Sleep
+    )
+    foreach ($T in $PowerTweaks) {
+        $P = $T -split ' '
+        powercfg /setacvalueindex $AlbusGUID $P[0] $P[1] $P[2] *>$null
+        powercfg /setdcvalueindex $AlbusGUID $P[0] $P[1] $P[2] *>$null
+    }
+    
+    # Finalize Activation
+    powercfg /setactive $AlbusGUID *>$null
 }
-powercfg /setactive $UltimateGUID >$null 2>&1
+
 
 
 
@@ -1407,11 +1447,11 @@ function Show-GPU-Menu {
 
 :GPULoop while ($true) {
     Show-GPU-Menu
-    $Choice = Read-Host " Enter choice [1-3]"
+    $Choice = Read-Host " enter choice [1-3]"
     if ($Choice -match '^[1-3]$') {
         switch ($Choice) {
             1 {
-                Status "starting NVIDIA GPU driver procedure..." "step"
+                Status "starting nvidia gpu driver procedure..." "step"
                 
                 # Step 1: Download
                 Status "opening default browser for driver download..." "info"
@@ -1465,10 +1505,10 @@ function Show-GPU-Menu {
                     $Setup = "$ExtractPath\setup.exe"
                     if (Test-Path $Setup) {
                         Start-Process $Setup -ArgumentList "-s -noreboot -noeula -clean" -Wait -NoNewWindow
-                        Status "NVIDIA driver installation complete." "done"
+                        Status "nvidia driver installation complete." "done"
                         
                     # Step 6: Post-Installation Performance Tuning
-                    Status "applying advanced NVIDIA performance tweaks..." "step"
+                    Status "applying advanced nvidia performance tweaks..." "step"
                         
                     # Class ID Based Tweaks (P-State, HDCP, Profiling)
                     $GPUClasses = Get-ChildItem -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4D36E968-E325-11CE-BFC1-08002BE10318}" -ErrorAction SilentlyContinue
@@ -1493,7 +1533,7 @@ function Show-GPU-Menu {
                     if (Test-Path $DRSPath) { Get-ChildItem -Path $DRSPath -Recurse | Unblock-File -ErrorAction SilentlyContinue }
 
                     # Step 7: NVIDIA Profile Inspector (Download & Apply)
-                    Status "fetching latest NVIDIA Profile Inspector from GitHub..." "step"
+                    Status "fetching latest nvidia profile inspector from github..." "step"
                     $InspectorZip = "$env:SystemRoot\Temp\nvidiaProfileInspector.zip"
                     $ExtractDir = "$env:SystemRoot\Temp\nvidiaProfileInspector"
                         
@@ -1511,9 +1551,9 @@ function Show-GPU-Menu {
                                 & $ZipPath x "$InspectorZip" -o"$ExtractDir" -y | Out-Null
                             }
                         }
-                    } catch { Status "failed to download NVIDIA Profile Inspector online." "warn" }
+                    } catch { Status "failed to download nvidia profile inspector online." "warn" }
 
-                    Status "configuring NVIDIA Profile Inspector settings..." "step"
+                    Status "configuring nvidia profile inspector settings..." "step"
                     $NIPFile = @"
 <?xml version="1.0" encoding="utf-16"?>
 <ArrayOfProfile>
