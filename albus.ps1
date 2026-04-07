@@ -907,7 +907,7 @@ if (Test-Path $SettingsDat) {
 
         [gc]::Collect()
         Start-Sleep -Seconds 2
-        reg unload "HKLM\Settings" >nul 2>&1
+        reg unload "HKLM\Settings" >$null 2>&1
     }
 }
 
