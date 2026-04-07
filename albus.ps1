@@ -68,8 +68,8 @@ if (Test-Connection -ComputerName "8.8.8.8" -Count 1 -Quiet -ErrorAction Silentl
     try {
         Status "fetching visual c++ runtimes (latest)" "info"
         $vcLinks = @(
-            "https://aka.ms/vs/17/release/vc_redist.x64.exe",
-            "https://aka.ms/vs/17/release/vc_redist.x86.exe"
+            "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+            # "https://aka.ms/vs/17/release/vc_redist.x86.exe"
         )
         foreach ($vcLink in $vcLinks) {
             $arch = if ($vcLink -match "x64") { "x64" } else { "x86" }
