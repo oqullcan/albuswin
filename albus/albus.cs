@@ -42,9 +42,7 @@ namespace AlbusCore
             } catch {}
 
             try { Thread.CurrentThread.Priority = ThreadPriority.Highest; } catch {}
-
             try { GCSettings.LatencyMode = GCLatencyMode.SustainedLowLatency; } catch {}
-
             try { Process.GetCurrentProcess().ProcessorAffinity = (IntPtr)1; } catch {}
 
             try {
@@ -81,7 +79,6 @@ namespace AlbusCore
             ));
 
             try { this.hResTimer = CreateWaitableTimerExW(IntPtr.Zero, null, 0x00000002, 0x1F0003); } catch {}
-
             try { VirtualLock(Process.GetCurrentProcess().Handle, (UIntPtr)4096); } catch {}
 
             if(null == this.ProcessesNames || 0 == this.ProcessesNames.Count)
@@ -119,7 +116,6 @@ namespace AlbusCore
             } catch {}
 
             InvokePriorityBoost(false);
-
             base.OnStop();
         }
 
@@ -137,7 +133,6 @@ namespace AlbusCore
             }
             return true;
         }
-
 
         ManagementEventWatcher startWatch;
         delegate void OnProcessStart(UInt32 processId);
@@ -234,7 +229,6 @@ namespace AlbusCore
             } catch {}
         }
 
-
         uint DefaultResolution = 0;
         uint MinimumResolution = 0;
         uint MaximumResolution = 0;
@@ -273,9 +267,7 @@ namespace AlbusCore
             }
         }
 
-
         System.Threading.Timer guardTimer;
-
         void StartResolutionGuard()
         {
             guardTimer = new System.Threading.Timer(GuardCallback, null,
@@ -298,9 +290,7 @@ namespace AlbusCore
             catch {}
         }
 
-
         System.Threading.Timer purgeTimer;
-
         void StartPeriodicPurge()
         {
             purgeTimer = new System.Threading.Timer(PeriodicPurgeCallback, null,
@@ -338,9 +328,7 @@ namespace AlbusCore
             try { EmptyWorkingSet(Process.GetCurrentProcess().Handle); } catch {}
         }
 
-
         List<String> ProcessesNames = null;
-
         void ReadProcessList()
         {
             this.ProcessesNames = null;
@@ -373,9 +361,7 @@ namespace AlbusCore
             }
         }
 
-
         FileSystemWatcher iniWatcher;
-
         void StartIniWatcher()
         {
             try
@@ -414,7 +400,6 @@ namespace AlbusCore
             catch {}
         }
 
-
         void Log(string message)
         {
             if(null != this.EventLog) { try { this.EventLog.WriteEntry(message); } catch {} }
@@ -423,7 +408,6 @@ namespace AlbusCore
         {
             if(null != this.EventLog) { try { this.EventLog.WriteEntry(message, type); } catch {} }
         }
-
 
         Thread audioThread;
         List<object> activeAudioClients = new List<object>();
@@ -631,7 +615,6 @@ namespace AlbusCore
             public uint ControlMask;
             public uint StateMask;
         }
-
         const UInt32 SYNCHRONIZE = 0x00100000;
     }
 
