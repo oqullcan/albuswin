@@ -1082,7 +1082,7 @@ try {
 # Native Driver Tweaks for Timers
 Status "enforcing global kernel timer resolution requests..." "step"
 $RegKernel = "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\kernel"
-Set-ItemProperty -Path $RegKernel -Name "GlobalTimerResolutionRequests" -Value 1 -PropertyType DWord -Force -ErrorAction SilentlyContinue | Out-Null
+Set-Registry -Path $RegKernel -Name "GlobalTimerResolutionRequests" -Value 1 -Type "DWord"
 
 # --- HARDWARE & INTERRUPT OPTIMIZATION ---
 
