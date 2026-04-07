@@ -1026,36 +1026,63 @@ foreach ($S in $NotifySettings) {
     Set-ItemProperty -Path $S.PSPath -Name 'IsPromoted' -Value 1 -Force -ErrorAction SilentlyContinue | Out-Null
 }
 
-# --- ALBUS SERVICES: TIMER RESOLUTION ---
-Status "deploying albus timer resolution service..." "step"
+# # --- ALBUS SERVICES: TIMER RESOLUTION & AUDIO ---
+Status "deploying albus core optimization engine..." "step"
 
 $SourceURL = "https://raw.githubusercontent.com/oqullcan/blablabla/main/albus/albus.cs"
-$CSFile = "$env:SystemRoot\Temp\albus.cs"
-$ExeFile = "$env:SystemRoot\AlbusServices.exe"
+$CSFile    = "$env:SystemRoot\AlbusX.cs"
+$ExeFile   = "$env:SystemRoot\AlbusX.exe"
+$CSC       = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+$SvcName   = "AlbusXSvc"
 
 try {
-    # Download Source
-    Invoke-WebRequest -Uri $SourceURL -OutFile $CSFile -UseBasicParsing -ErrorAction Stop
-    
-    # Compile Natively
-    $CSC = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-    if (Test-Path $CSC) {
-        Status "compiling albus services natively..." "info"
-        & $CSC -out:$ExeFile $CSFile -WindowStyle Hidden | Out-Null
-        
-        # Service Management
-        $NewSvc = "Albus Services"
+    # 1. Cleanup Legacy
+    if (Get-Service -Name $SvcName -ErrorAction SilentlyContinue) {
+        Stop-Service -Name $SvcName -Force -ErrorAction SilentlyContinue
+        sc.exe delete $SvcName | Out-Null
+        Start-Sleep -Seconds 1
+    }
 
-        # Create & Start New Service
-        if (Test-Path $ExeFile) {
-            if (-not (Get-Service -Name $NewSvc -ErrorAction SilentlyContinue)) {
-                New-Service -Name $NewSvc -BinaryPathName $ExeFile -DisplayName $NewSvc -Description "Albus Services" -StartupType Automatic -ErrorAction SilentlyContinue | Out-Null
+    # 2. Fetch Source from GitHub
+    Status "fetching albus core source from github..." "info"
+    Invoke-WebRequest -Uri $SourceURL -OutFile $CSFile -UseBasicParsing -ErrorAction Stop
+
+    # 3. Compile Native Payload
+    if (Test-Path $CSFile) {
+        if (Test-Path $CSC) {
+            Status "compiling albus x native engine..." "info"
+            
+            $Refs = @(
+                "-r:System.ServiceProcess.dll",
+                "-r:System.Configuration.Install.dll",
+                "-r:System.Management.dll"
+            ) -join " "
+            
+            & $CSC $Refs -out:$ExeFile $CSFile -WindowStyle Hidden | Out-Null
+            Remove-Item $CSFile -Force
+            
+            if (Test-Path $ExeFile) {
+                # 4. Deploy Service
+                Status "installing albus core system service..." "info"
+                New-Service -Name $SvcName -BinaryPathName $ExeFile -DisplayName "AlbusX" -Description "Albus High-Performance Engine" -StartupType Automatic -ErrorAction SilentlyContinue | Out-Null
+                
+                # Failure Policy (Auto-Restart)
+                sc.exe failure $SvcName reset= 60 actions= restart/5000/restart/10000/restart/30000 | Out-Null
+                
+                # Start
+                Start-Service -Name $SvcName -ErrorAction SilentlyContinue | Out-Null
+                Status "albus kernel service, timer resolution & audio is active." "done"
+            } else {
+                Status "compilation failed. check .net framework 4.0 status." "fail"
             }
-            Start-Service -Name $NewSvc -ErrorAction SilentlyContinue | Out-Null
-            Status "albus timer resolution service and audio is active." "done"
         }
     }
-} catch { Status "failed to deploy albus services online." "warn" }
+} catch { Status "failed to deploy albus core services from github." "warn" }
+
+# Native Driver Tweaks for Timers
+Status "enforcing global kernel timer resolution requests..." "step"
+$RegKernel = "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\kernel"
+Set-ItemProperty -Path $RegKernel -Name "GlobalTimerResolutionRequests" -Value 1 -PropertyType DWord -Force -ErrorAction SilentlyContinue | Out-Null
 
 # --- HARDWARE & INTERRUPT OPTIMIZATION ---
 
