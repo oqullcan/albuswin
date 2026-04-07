@@ -4,7 +4,11 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
     exit
 }
 
-$Host.UI.RawUI.WindowTitle = "AlbusX"
+$Identity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+$Privilege = $Identity.Split('\')[-1]
+
+[Console]::Title = "Albus test - ($Privilege)"
+
 $ErrorActionPreference     = "SilentlyContinue"
 [Console]::OutputEncoding   = [System.Text.Encoding]::UTF8
 
