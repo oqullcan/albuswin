@@ -28,13 +28,10 @@ function Set-Registry {
         [string]$Type = "DWord"
     )
     try {
-        # Normalized Path for reg.exe fallback
         $CleanPath = $Path.Replace("HKLM:", "HKEY_LOCAL_MACHINE").Replace("HKCU:", "HKEY_CURRENT_USER").Replace("HKCR:", "HKEY_CLASSES_ROOT").Replace("HKU:", "HKEY_USERS")
         
-        # Deletion: Key level (- prefix)
         if ($Path.StartsWith("-")) {
             $RealPath = $Path.Substring(1)
-            # Use reg.exe directly for deletions on HKCR (Protects against provider hangs)
             if ($Path -like "*-HKCR*") {
                 & reg.exe delete "$($CleanPath.Substring(1))" /f 2>&1 | Out-Null
             } else {
@@ -43,13 +40,11 @@ function Set-Registry {
             return
         }
 
-        # Deletion: Value level (Value is "-")
         if ($Value -eq "-") {
             if (Test-Path $Path) { Remove-ItemProperty -Path $Path -Name $Name -Force -ErrorAction SilentlyContinue | Out-Null }
             return
         }
 
-        # Creation / Modification
         if (-not (Test-Path $Path)) { New-Item -Path $Path -Force | Out-Null }
 
         if ($Name -eq "") {
@@ -59,24 +54,22 @@ function Set-Registry {
             try {
                 New-ItemProperty -Path $Path -Name $Name -Value $Value -PropertyType $PT -Force -ErrorAction Stop | Out-Null
             } catch {
-                # Fallback to reg.exe for protected/deep system keys
                 $RegType = switch ($Type) {
                     "DWord"  { "REG_DWORD" } "String" { "REG_SZ" } "Binary" { "REG_BINARY" }
                     "QWord"  { "REG_QWORD" } "ExpandString" { "REG_EXPAND_SZ" } Default { "REG_DWORD" }
                 }
-                # Format binary for reg.exe (Continuous hex string)
                 $FinalValue = if ($Type -eq "Binary") { ($Value | ForEach-Object { "{0:X2}" -f $_ }) -join "" } else { $Value }
                 & reg.exe add "$CleanPath" /v "$Name" /t $RegType /d $FinalValue /f 2>&1 | Out-Null
             }
         }
     } catch {
-        # Only log failures for additions, not deletions
         if (-not ($Path.StartsWith("-") -or $Value -eq "-")) {
             Status "failed to set registry: $Path\$Name" "fail"
         }
     }
 }
 
+#<#
 $dest = "C:\Albus"
 if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Path $dest | Out-Null }
 
@@ -155,6 +148,7 @@ if (Test-Connection -ComputerName "8.8.8.8" -Count 1 -Quiet -ErrorAction Silentl
     Status "network interface unresponsive. bypassing payload retrieval." "fail"
 }
 
+#>
 # =============================================================================================================================================================================
 
 Status "executing registry optimization engine..." "step"
@@ -162,6 +156,11 @@ Status "executing registry optimization engine..." "step"
 # Ensure all standard registry drives are mapped
 if (-not (Get-PSDrive -Name HKCR -ErrorAction SilentlyContinue)) { New-PSDrive -Name HKCR -PSProvider Registry -Root HKEY_CLASSES_ROOT | Out-Null }
 if (-not (Get-PSDrive -Name HKU -ErrorAction SilentlyContinue)) { New-PSDrive -Name HKU -PSProvider Registry -Root HKEY_USERS | Out-Null }
+
+$Today = Get-Date
+$PauseEnd = $Today.AddYears(31)
+$TodayStr = $Today.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+$PauseStr = $PauseEnd.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
 $Tweaks = @(
     # --- EASE OF ACCESS ---
@@ -653,37 +652,80 @@ $Tweaks = @(
     @{ Path = "HKCU:\Console\%SystemRoot%_System32_WindowsPowerShell_v1.0_powershell.exe"; Name = "ScreenColors"; Value = 15; Type = "DWord" }
     @{ Path = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\UserProfileEngagement"; Name = "ScoobeSystemSettingEnabled"; Value = 0; Type = "DWord" }
 
+    # --- SOUND SCHEMES ---
+    @{ Path = "HKCU:\AppEvents\Schemes\Apps\.Default\.Default\.Current"; Name = ""; Value = ""; Type = "String" }
+    @{ Path = "HKCU:\AppEvents\Schemes\Apps\.Default\CriticalBatteryAlarm\.Current"; Name = ""; Value = ""; Type = "String" }
+    @{ Path = "HKCU:\AppEvents\Schemes\Apps\.Default\DeviceConnect\.Current"; Name = ""; Value = ""; Type = "String" }
+    @{ Path = "HKCU:\AppEvents\Schemes\Apps\.Default\DeviceDisconnect\.Current"; Name = ""; Value = ""; Type = "String" }
+    @{ Path = "HKCU:\AppEvents\Schemes\Apps\.Default\DeviceFail\.Current"; Name = ""; Value = ""; Type = "String" }
+    @{ Path = "HKCU:\AppEvents\Schemes\Apps\.Default\FaxBeep\.Current"; Name = ""; Value = ""; Type = "String" }
+    @{ Path = "HKCU:\AppEvents\Schemes\Apps\.Default\LowBatteryAlarm\.Current"; Name = ""; Value = ""; Type = "String" }
+    @{ Path = "HKCU:\AppEvents\Schemes\Apps\.Default\MailBeep\.Current"; Name = ""; Value = ""; Type = "String" }
+    @{ Path = "HKCU:\AppEvents\Schemes\Apps\.Default\MessageNudge\.Current"; Name = ""; Value = ""; Type = "String" }
+    @{ Path = "HKCU:\AppEvents\Schemes\Apps\.Default\Notification.Default\.Current"; Name = ""; Value = ""; Type = "String" }
+    @{ Path = "HKCU:\AppEvents\Schemes\Apps\.Default\Notification.IM\.Current"; Name = ""; Value = ""; Type = "String" }
+    @{ Path = "HKCU:\AppEvents\Schemes\Apps\.Default\Notification.Mail\.Current"; Name = ""; Value = ""; Type = "String" }
+    @{ Path = "HKCU:\AppEvents\Schemes\Apps\.Default\Notification.Proximity\.Current"; Name = ""; Value = ""; Type = "String" }
+    @{ Path = "HKCU:\AppEvents\Schemes\Apps\.Default\Notification.Reminder\.Current"; Name = ""; Value = ""; Type = "String" }
+    @{ Path = "HKCU:\AppEvents\Schemes\Apps\.Default\Notification.SMS\.Current"; Name = ""; Value = ""; Type = "String" }
+    @{ Path = "HKCU:\AppEvents\Schemes\Apps\.Default\ProximityConnection\.Current"; Name = ""; Value = ""; Type = "String" }
+    @{ Path = "HKCU:\AppEvents\Schemes\Apps\.Default\SystemAsterisk\.Current"; Name = ""; Value = ""; Type = "String" }
+    @{ Path = "HKCU:\AppEvents\Schemes\Apps\.Default\SystemExclamation\.Current"; Name = ""; Value = ""; Type = "String" }
+    @{ Path = "HKCU:\AppEvents\Schemes\Apps\.Default\SystemHand\.Current"; Name = ""; Value = ""; Type = "String" }
+    @{ Path = "HKCU:\AppEvents\Schemes\Apps\.Default\SystemNotification\.Current"; Name = ""; Value = ""; Type = "String" }
+    @{ Path = "HKCU:\AppEvents\Schemes\Apps\.Default\WindowsUAC\.Current"; Name = ""; Value = ""; Type = "String" }
+
+    # --- SPEECH SOUND SCHEMES ---
+    @{ Path = "HKCU:\AppEvents\Schemes\Apps\sapisvr\DisNumbersSound\.current"; Name = ""; Value = ""; Type = "String" }
+    @{ Path = "HKCU:\AppEvents\Schemes\Apps\sapisvr\HubOffSound\.current"; Name = ""; Value = ""; Type = "String" }
+    @{ Path = "HKCU:\AppEvents\Schemes\Apps\sapisvr\HubOnSound\.current"; Name = ""; Value = ""; Type = "String" }
+    @{ Path = "HKCU:\AppEvents\Schemes\Apps\sapisvr\HubSleepSound\.current"; Name = ""; Value = ""; Type = "String" }
+    @{ Path = "HKCU:\AppEvents\Schemes\Apps\sapisvr\MisrecoSound\.current"; Name = ""; Value = ""; Type = "String" }
+    @{ Path = "HKCU:\AppEvents\Schemes\Apps\sapisvr\PanelSound\.current"; Name = ""; Value = ""; Type = "String" }
+
+    # --- MOUSE CURSORS ---
+    @{ Path = "HKCU:\Control Panel\Cursors"; Name = "AppStarting"; Value = ""; Type = "ExpandString" }
+    @{ Path = "HKCU:\Control Panel\Cursors"; Name = "Arrow"; Value = ""; Type = "ExpandString" }
+    @{ Path = "HKCU:\Control Panel\Cursors"; Name = "Crosshair"; Value = ""; Type = "ExpandString" }
+    @{ Path = "HKCU:\Control Panel\Cursors"; Name = "Hand"; Value = ""; Type = "ExpandString" }
+    @{ Path = "HKCU:\Control Panel\Cursors"; Name = "Help"; Value = ""; Type = "ExpandString" }
+    @{ Path = "HKCU:\Control Panel\Cursors"; Name = "IBeam"; Value = ""; Type = "ExpandString" }
+    @{ Path = "HKCU:\Control Panel\Cursors"; Name = "No"; Value = ""; Type = "ExpandString" }
+    @{ Path = "HKCU:\Control Panel\Cursors"; Name = "NWPen"; Value = ""; Type = "ExpandString" }
+    @{ Path = "HKCU:\Control Panel\Cursors"; Name = "SizeAll"; Value = ""; Type = "ExpandString" }
+    @{ Path = "HKCU:\Control Panel\Cursors"; Name = "SizeNESW"; Value = ""; Type = "ExpandString" }
+    @{ Path = "HKCU:\Control Panel\Cursors"; Name = "SizeNS"; Value = ""; Type = "ExpandString" }
+    @{ Path = "HKCU:\Control Panel\Cursors"; Name = "SizeNWSE"; Value = ""; Type = "ExpandString" }
+    @{ Path = "HKCU:\Control Panel\Cursors"; Name = "SizeWE"; Value = ""; Type = "ExpandString" }
+    @{ Path = "HKCU:\Control Panel\Cursors"; Name = "UpArrow"; Value = ""; Type = "ExpandString" }
+    @{ Path = "HKCU:\Control Panel\Cursors"; Name = "Wait"; Value = ""; Type = "ExpandString" }
+
+    # --- SECURITY & SMARTSCREEN ---
+    @{ Path = "HKCU:\SOFTWARE\Microsoft\Edge\SmartScreenEnabled"; Name = ""; Value = 0; Type = "DWord" }
+    @{ Path = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppHost"; Name = "EnableWebContentEvaluation"; Value = 0; Type = "DWord" }
+
+    # --- UPDATES & PAUSE TIME ---
+    @{ Path = "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings"; Name = "PauseUpdatesExpiryTime"; Value = $PauseStr; Type = "String" }
+    @{ Path = "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings"; Name = "PauseFeatureUpdatesEndTime"; Value = $PauseStr; Type = "String" }
+    @{ Path = "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings"; Name = "PauseFeatureUpdatesStartTime"; Value = $TodayStr; Type = "String" }
+    @{ Path = "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings"; Name = "PauseQualityUpdatesEndTime"; Value = $PauseStr; Type = "String" }
+    @{ Path = "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings"; Name = "PauseQualityUpdatesStartTime"; Value = $TodayStr; Type = "String" }
+    @{ Path = "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings"; Name = "PauseUpdatesStartTime"; Value = $TodayStr; Type = "String" }
+
+    # --- DRIVER BLOCKS ---
+    @{ Path = "HKLM:\Software\Policies\Microsoft\Windows\Device Metadata"; Name = "PreventDeviceMetadataFromNetwork"; Value = 1; Type = "DWord" }
+    @{ Path = "HKLM:\Software\Policies\Microsoft\Windows\DeviceInstall\Settings"; Name = "DisableSendGenericDriverNotFoundToWER"; Value = 1; Type = "DWord" }
+    @{ Path = "HKLM:\Software\Policies\Microsoft\Windows\DeviceInstall\Settings"; Name = "DisableSendRequestAdditionalSoftwareToWER"; Value = 1; Type = "DWord" }
+    @{ Path = "HKLM:\Software\Policies\Microsoft\Windows\DriverSearching"; Name = "SearchOrderConfig"; Value = 0; Type = "DWord" }
+    @{ Path = "HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate"; Name = "SetAllowOptionalContent"; Value = 0; Type = "DWord" }
+    @{ Path = "HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate"; Name = "AllowTemporaryEnterpriseFeatureControl"; Value = 0; Type = "DWord" }
+    @{ Path = "HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate"; Name = "ExcludeWUDriversInQualityUpdate"; Value = 1; Type = "DWord" }
+    @{ Path = "HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate\AU"; Name = "IncludeRecommendedUpdates"; Value = 0; Type = "DWord" }
+    @{ Path = "HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate\AU"; Name = "EnableFeaturedSoftware"; Value = 0; Type = "DWord" }
 )
 
 foreach ($Tweak in $Tweaks) {
     Set-Registry -Path $Tweak.Path -Name $Tweak.Name -Value $Tweak.Value -Type $Tweak.Type
-}
-
-# sound schemes
-$SoundKeys = @(
-    ".Default\.Default", "CriticalBatteryAlarm", "DeviceConnect", "DeviceDisconnect", "DeviceFail", "FaxBeep", 
-    "LowBatteryAlarm", "MailBeep", "MessageNudge", "Notification.Default", "Notification.IM", "Notification.Mail", 
-    "Notification.Proximity", "Notification.Reminder", "Notification.SMS", "ProximityConnection", "SystemAsterisk", 
-    "SystemExclamation", "SystemHand", "SystemNotification", "WindowsUAC"
-)
-foreach ($s in $SoundKeys) {
-    $p = if ($s -eq ".Default\.Default") { "HKCU:\AppEvents\Schemes\Apps\.Default\.Default\.Current" } else { "HKCU:\AppEvents\Schemes\Apps\.Default\$s\.Current" }
-    Set-Registry -Path $p -Name "" -Value "" -Type "String"
-}
-
-# speech sound schemes
-$SpeechKeys = @("DisNumbersSound", "HubOffSound", "HubOnSound", "HubSleepSound", "MisrecoSound", "PanelSound")
-foreach ($s in $SpeechKeys) {
-    Set-Registry -Path "HKCU:\AppEvents\Schemes\Apps\sapisvr\$s\.current" -Name "" -Value "" -Type "String"
-}
-
-# mouse cursors
-$CursorKeys = @(
-    "AppStarting", "Arrow", "Crosshair", "Hand", "Help", "IBeam", "No", "NWPen", 
-    "SizeAll", "SizeNESW", "SizeNS", "SizeNWSE", "SizeWE", "UpArrow", "Wait"
-)
-foreach ($c in $CursorKeys) {
-    Set-Registry -Path "HKCU:\Control Panel\Cursors" -Name $c -Value "" -Type "ExpandString"
 }
 
 Status "registry optimization complete." "done"
@@ -721,7 +763,8 @@ $ServiceTweaks = @(
     @{ Name = "edgeupdate"; Start = 4 },
     @{ Name = "Wecsvc"; Start = 4 },
     @{ Name = "UCPD"; Start = 4 },
-    @{ Name = "condrv"; Start = 2 }
+    @{ Name = "condrv"; Start = 2 },
+    @{ Name = "CDPUserSvc"; Start = 4 } # disable windows backup / connected devices platform service.
 )
 
 foreach ($T in $ServiceTweaks) {
@@ -731,43 +774,10 @@ foreach ($T in $ServiceTweaks) {
     }
 }
 
-# ucpd velocity task
-Disable-ScheduledTask -TaskPath '\Microsoft\Windows\AppxDeploymentClient' -TaskName 'UCPD Velocity' -ErrorAction SilentlyContinue | Out-Null
-
-# =============================================================================================================================================================================
-# --- POST-REGISTRY SYSTEM TWEAKS ---
-# =============================================================================================================================================================================
-
-Status "performing post-optimization system tweaks..." "step"
-
-# privacy & Security: Clear Capability Access database (Resets app permissions to default/deny)
-Status "resetting privacy & security app permissions database..." "step"
-Stop-Service -Name 'camsvc' -Force -ErrorAction SilentlyContinue
-$CapabilityPath = "$env:ProgramData\Microsoft\Windows\CapabilityAccessManager"
-if (Test-Path "$CapabilityPath\CapabilityConsentStorage.db*") {
-    Remove-Item -Path "$CapabilityPath\CapabilityConsentStorage.db*" -Force -ErrorAction SilentlyContinue
-}
-
-# Service Management: Disable Windows Backup / Connected Devices Platform Service
-Status "disabling windows backup & connected devices service..." "step"
-Set-ItemProperty -Path "HKLM:\SYSTEM\ControlSet001\Services\CDPUserSvc" -Name "Start" -Value 4 -Force
-
-# Memory & Hardware: Disable Memory Compression & BitLocker
-Status "optimizing memory & storage security..." "step"
-Disable-MMAgent -MemoryCompression -ErrorAction SilentlyContinue | Out-Null
-try {
-    Get-BitLockerVolume -ErrorAction SilentlyContinue | Where-Object { $_.ProtectionStatus -eq "On" -or $_.VolumeStatus -ne "FullyDecrypted" } | ForEach-Object {
-        Disable-BitLocker -MountPoint $_.MountPoint -ErrorAction SilentlyContinue | Out-Null
-    }
-} catch { }
-
-# Security: Disable SmartScreen & Scheduled Tasks
-Status "disabling smartscreen & background system tasks..." "step"
-Set-Registry -Path "HKCU:\SOFTWARE\Microsoft\Edge\SmartScreenEnabled" -Name "" -Value 0 -Type "DWord"
-Set-Registry -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppHost" -Name "EnableWebContentEvaluation" -Value 0 -Type "DWord"
-
+Status "disabling background system tasks..." "step"
 $TasksToDisable = @(
-    "Microsoft\Windows\ExploitGuard\ExploitGuard MDM policy Refresh",
+    "Microsoft\Windows\AppxDeploymentClient\UCPD Velocity",
+    "Microsoft\Windows\ExploitGuard\ExploitGuard MDM Policy Refresh",
     "Microsoft\Windows\Windows Defender\Windows Defender Cache Maintenance",
     "Microsoft\Windows\Windows Defender\Windows Defender Cleanup",
     "Microsoft\Windows\Windows Defender\Windows Defender Scheduled Scan",
@@ -776,83 +786,88 @@ $TasksToDisable = @(
 )
 foreach ($Task in $TasksToDisable) {
     Disable-ScheduledTask -TaskPath "\" -TaskName ($Task -split "\\")[-1] -ErrorAction SilentlyContinue | Out-Null
-    # fallback to schtasks if path is specific
-    schtasks /Change /TN "$Task" /Disable 2>$null | Out-Null
 }
 
-# network: optimize bindings (disable ipv6, lldp, qos, etc.)
-Status "optimizing network adapter bindings (ipv4 priority)..." "step"
-$AdaptersToDisable = @('ms_lldp', 'ms_lltdio', 'ms_implat', 'ms_rspndr', 'ms_tcpip6', 'ms_server', 'ms_msclient', 'ms_pacer')
-foreach ($Binding in $AdaptersToDisable) {
-    Disable-NetAdapterBinding -Name "*" -ComponentID $Binding -ErrorAction SilentlyContinue
+Status "performing post-optimization system tweaks..." "step"
+
+# privacy & security: clear app permissions (resets capability consent storage to default/deny)
+Status "resetting privacy & security app permissions database..." "step"
+Stop-Service -Name 'camsvc' -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "$env:ProgramData\Microsoft\Windows\CapabilityAccessManager\CapabilityConsentStorage.db*" -Force -ErrorAction SilentlyContinue
+
+# memory & storage: disable compression and suspend active bitlocker drives
+Status "optimizing memory & storage security..." "step"
+Disable-MMAgent -MemoryCompression -ErrorAction SilentlyContinue | Out-Null
+Get-BitLockerVolume -ErrorAction SilentlyContinue | Where-Object { $_.ProtectionStatus -eq "On" } | Disable-BitLocker -ErrorAction SilentlyContinue | Out-Null
+
+# network: tcp latency, interface offloading & power states
+Status "optimizing network logic (latency, nagle's algorithm & adapter sleep)..." "step"
+'ms_lldp', 'ms_lltdio', 'ms_implat', 'ms_rspndr', 'ms_tcpip6', 'ms_server', 'ms_msclient', 'ms_pacer' | ForEach-Object {
+    Disable-NetAdapterBinding -Name "*" -ComponentID $_ -ErrorAction SilentlyContinue
 }
 
-# Updates: Pause Windows Updates for 365 days & Block Driver Updates
-Status "pausing windows & driver updates (1 year)..." "step"
-$Today = Get-Date
-$PauseEnd = $Today.AddDays(365)
-$TodayStr = $Today.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-$PauseStr = $PauseEnd.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+Get-ChildItem -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces" -ErrorAction SilentlyContinue | ForEach-Object {
+    $P = $_.PSPath
+    Set-Registry -Path $P -Name "TcpAckFrequency" -Value 1 -Type "DWord"
+    Set-Registry -Path $P -Name "TCPNoDelay" -Value 1 -Type "DWord"
+}
 
-$UpdatePath = "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings"
-Set-ItemProperty -Path $UpdatePath -Name "PauseUpdatesExpiryTime" -Value $PauseStr -Force -ErrorAction SilentlyContinue
-Set-ItemProperty -Path $UpdatePath -Name "PauseFeatureUpdatesEndTime" -Value $PauseStr -Force -ErrorAction SilentlyContinue
-Set-ItemProperty -Path $UpdatePath -Name "PauseFeatureUpdatesStartTime" -Value $TodayStr -Force -ErrorAction SilentlyContinue
-Set-ItemProperty -Path $UpdatePath -Name "PauseQualityUpdatesEndTime" -Value $PauseStr -Force -ErrorAction SilentlyContinue
-Set-ItemProperty -Path $UpdatePath -Name "PauseQualityUpdatesStartTime" -Value $TodayStr -Force -ErrorAction SilentlyContinue
-Set-ItemProperty -Path $UpdatePath -Name "PauseUpdatesStartTime" -Value $TodayStr -Force -ErrorAction SilentlyContinue
+Get-ChildItem -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-e325-11ce-bfc1-08002be10318}" -ErrorAction SilentlyContinue | ForEach-Object {
+    $P = $_.PSPath
+    $HasSpeedDuplex = Get-ItemProperty -Path $P -Name "*SpeedDuplex" -ErrorAction SilentlyContinue
+    if ($HasSpeedDuplex -and -not (Get-ItemProperty -Path $P -Name "*PhyType" -ErrorAction SilentlyContinue)) {
+        "EnablePME", "*DeviceSleepOnDisconnect", "*EEE", "AdvancedEEE", "*SipsEnabled", "EnableAspm", "ASPM", "*ModernStandbyWoLMagicPacket", "*SelectiveSuspend", "EnableGigaLite", "GigaLite", "*WakeOnMagicPacket", "*WakeOnPattern", "AutoPowerSaveModeEnabled", "EEELinkAdvertisement", "EeePhyEnable", "EnableGreenEthernet", "EnableModernStandby", "PowerDownPll", "PowerSavingMode", "ReduceSpeedOnPowerDown", "S5WakeOnLan", "SavePowerNowEnabled", "ULPMode", "WakeOnLink", "WakeOnSlot", "WakeOnLinkChg", "WakeOnLinkUp", "WakeUpModeCap", "*NicAutoPowerSaver", "PowerSaveEnable", "EnablePowerManagement", "ForceWakeFromMagicPacketOnModernStandby", "WakeFromS5", "WakeOn", "EnableSavePowerNow", "*EnableDynamicPowerGating", "DynamicPowerGating", "EnableD3ColdInS0", "WakeFromPowerOff", "LogLinkStateEvent" | ForEach-Object {
+            if ($null -ne (Get-ItemProperty -Path $P -Name $_ -ErrorAction SilentlyContinue)) {
+                Set-Registry -Path $P -Name $_ -Value "0" -Type "String"
+            }
+        }
+        
+        if ($null -ne (Get-ItemProperty -Path $P -Name "PnPCapabilities" -ErrorAction SilentlyContinue)) { Set-Registry -Path $P -Name "PnPCapabilities" -Value 24 -Type "DWord" }
+        if ($null -ne (Get-ItemProperty -Path $P -Name "WakeOnMagicPacketFromS5" -ErrorAction SilentlyContinue)) { Set-Registry -Path $P -Name "WakeOnMagicPacketFromS5" -Value "2" -Type "String" }
+        if ($null -ne (Get-ItemProperty -Path $P -Name "WolShutdownLinkSpeed" -ErrorAction SilentlyContinue)) { Set-Registry -Path $P -Name "WolShutdownLinkSpeed" -Value "2" -Type "String" }
+    }
+}
 
-# Registry Driver Blocks
-Set-Registry -Path "HKLM:\Software\Policies\Microsoft\Windows\Device Metadata" -Name "PreventDeviceMetadataFromNetwork" -Value 1 -Type "DWord"
-Set-Registry -Path "HKLM:\Software\Policies\Microsoft\Windows\DeviceInstall\Settings" -Name "DisableSendGenericDriverNotFoundToWER" -Value 1 -Type "DWord"
-Set-Registry -Path "HKLM:\Software\Policies\Microsoft\Windows\DeviceInstall\Settings" -Name "DisableSendRequestAdditionalSoftwareToWER" -Value 1 -Type "DWord"
-Set-Registry -Path "HKLM:\Software\Policies\Microsoft\Windows\DriverSearching" -Name "SearchOrderConfig" -Value 0 -Type "DWord"
-Set-Registry -Path "HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate" -Name "SetAllowOptionalContent" -Value 0 -Type "DWord"
-Set-Registry -Path "HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate" -Name "AllowTemporaryEnterpriseFeatureControl" -Value 0 -Type "DWord"
-Set-Registry -Path "HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate" -Name "ExcludeWUDriversInQualityUpdate" -Value 1 -Type "DWord"
-Set-Registry -Path "HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "IncludeRecommendedUpdates" -Value 0 -Type "DWord"
-Set-Registry -Path "HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "EnableFeaturedSoftware" -Value 0 -Type "DWord"
+Set-Registry -Path "HKLM:\System\CurrentControlSet\Services\Dnscache\Parameters" -Name "DisableCoalescing" -Value 1 -Type "DWord"
+Set-Registry -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WcmSvc\Local" -Name "fDisablePowerManagement" -Value 1 -Type "DWord"
+Set-Registry -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WcmSvc\GroupPolicy" -Name "fDisablePowerManagement" -Value 1 -Type "DWord"
 
-# Power & Sign-in: Disable Sign-in requirement after away
-Status "disabling sign-in requirement after sleep/away..." "step"
-powercfg /setdcvalueindex scheme_current sub_none consolelock 0 2>$null
-powercfg /setacvalueindex scheme_current sub_none consolelock 0 2>$null
-powercfg /setactive scheme_current 2>$null
-
-# notifications: disable priority notifications
+# notifications: priority-only prompt blob injection
 Status "disabling priority-only notification prompts..." "step"
-$PriorityGUIDs = Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\CloudStore\Store\DefaultAccount\Current" -ErrorAction SilentlyContinue |
-    Where-Object { $_.PSChildName -match '^\{[a-f0-9-]+\}\$' } | ForEach-Object { ($_.PSChildName -split '\$')[0] } | Select-Object -Unique
-
 $PriorityBlob = [byte[]](0x43,0x42,0x01,0x00,0x0A,0x02,0x01,0x00,0x2A,0x06,0xDF,0xB8,0xB4,0xCC,0x06,0x2A,0x2B,0x0E,0xD0,0x03,0x43,0x42,0x01,0x00,0xC2,0x0A,0x01,0xCD,0x14,0x06,0x02,0x05,0x00,0x00,0x01,0x01,0x02,0x00,0x03,0x01,0x04,0x00,0xCC,0x32,0x12,0x05,0x28,0x4D,0x00,0x69,0x00,0x63,0x00,0x72,0x00,0x6F,0x00,0x73,0x00,0x6F,0x00,0x66,0x00,0x74,0x00,0x2E,0x00,0x53,0x00,0x63,0x00,0x72,0x00,0x65,0x00,0x65,0x00,0x6E,0x00,0x53,0x00,0x6B,0x00,0x65,0x00,0x74,0x00,0x63,0x00,0x68,0x00,0x5F,0x00,0x38,0x00,0x77,0x00,0x65,0x00,0x6B,0x00,0x79,0x00,0x62,0x00,0x33,0x00,0x64,0x00,0x38,0x00,0x62,0x00,0x62,0x00,0x77,0x00,0x65,0x00,0x21,0x00,0x41,0x00,0x70,0x00,0x70,0x00,0x29,0x4D,0x00,0x69,0x00,0x63,0x00,0x72,0x00,0x6F,0x00,0x73,0x00,0x6F,0x00,0x66,0x00,0x74,0x00,0x2E,0x00,0x57,0x00,0x69,0x00,0x6E,0x00,0x64,0x00,0x6F,0x00,0x77,0x00,0x73,0x00,0x41,0x00,0x6C,0x00,0x61,0x00,0x72,0x00,0x6D,0x00,0x73,0x00,0x5F,0x00,0x38,0x00,0x77,0x00,0x65,0x00,0x6B,0x00,0x79,0x00,0x62,0x00,0x33,0x00,0x64,0x00,0x38,0x00,0x62,0x00,0x62,0x00,0x77,0x00,0x65,0x00,0x21,0x00,0x41,0x00,0x70,0x00,0x70,0x00,0x31,0x4D,0x00,0x69,0x00,0x63,0x00,0x72,0x00,0x6F,0x00,0x73,0x00,0x6F,0x00,0x66,0x00,0x74,0x00,0x2E,0x00,0x58,0x00,0x62,0x00,0x6F,0x00,0x78,0x00,0x41,0x00,0x70,0x00,0x70,0x00,0x5F,0x00,0x38,0x00,0x77,0x00,0x65,0x00,0x6B,0x00,0x79,0x00,0x62,0x00,0x33,0x00,0x64,0x00,0x38,0x00,0x62,0x00,0x62,0x00,0x77,0x00,0x65,0x00,0x21,0x00,0x41,0x00,0x70,0x00,0x70,0x00,0x2D,0x4D,0x00,0x69,0x00,0x63,0x00,0x72,0x00,0x6F,0x00,0x73,0x00,0x6F,0x00,0x66,0x00,0x74,0x00,0x2E,0x00,0x58,0x00,0x62,0x00,0x6F,0x00,0x78,0x00,0x47,0x00,0x61,0x00,0x6D,0x00,0x69,0x00,0x6E,0x00,0x67,0x00,0x4F,0x00,0x76,0x00,0x65,0x00,0x72,0x00,0x6C,0x00,0x61,0x00,0x79,0x00,0x5F,0x00,0x38,0x00,0x77,0x00,0x65,0x00,0x6B,0x00,0x79,0x00,0x62,0x00,0x33,0x00,0x64,0x00,0x38,0x00,0x62,0x00,0x62,0x00,0x77,0x00,0x65,0x00,0x21,0x00,0x41,0x00,0x70,0x00,0x70,0x00,0x29,0x57,0x00,0x69,0x00,0x6E,0x00,0x64,0x00,0x6F,0x00,0x77,0x00,0x73,0x00,0x2E,0x00,0x53,0x00,0x79,0x00,0x73,0x00,0x74,0x00,0x65,0x00,0x6D,0x00,0x2E,0x00,0x4E,0x00,0x65,0x00,0x61,0x00,0x72,0x00,0x53,0x00,0x68,0x00,0x61,0x00,0x72,0x00,0x65,0x00,0x45,0x00,0x78,0x00,0x70,0x00,0x65,0x00,0x72,0x00,0x69,0x00,0x65,0x00,0x6E,0x00,0x63,0x00,0x65,0x00,0x52,0x00,0x65,0x00,0x63,0x00,0x65,0x00,0x69,0x00,0x76,0x00,0x65,0x00,0x00,0x00,0x00,0x00)
 
-foreach ($guid in $PriorityGUIDs) {
-    Set-Registry -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\CloudStore\Store\DefaultAccount\Current\$guid`$windows.data.donotdisturb.quiethoursprofile`$quiethoursprofilelist\windows.data.donotdisturb.quiethoursprofile`$microsoft.quiethoursprofile.priorityonly" -Name "Data" -Value $PriorityBlob -Type "Binary"
-}
+Get-ChildItem -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\CloudStore\Store\DefaultAccount\Current" -ErrorAction SilentlyContinue |
+    Where-Object { $_.PSChildName -match '^\{[a-f0-9-]+\}\$' } | ForEach-Object {
+        $Guid = ($_.PSChildName -split '\$')[0]
+        $Targ = "HKCU:\Software\Microsoft\Windows\CurrentVersion\CloudStore\Store\DefaultAccount\Current\$Guid`$windows.data.donotdisturb.quiethoursprofile`$quiethoursprofilelist\windows.data.donotdisturb.quiethoursprofile`$microsoft.quiethoursprofile.priorityonly"
+        Set-Registry -Path $Targ -Name "Data" -Value $PriorityBlob -Type "Binary"
+    }
 
-# app actions: disable windows client cbs & store integration
+# hive config: disable windows client cbs, original apps & autoplay settings natively
 Status "optimizing windows client session apps & hive settings..." "step"
-$AppsToKill = "AppActions", "CrossDeviceResume", "DesktopStickerEditorWin32Exe", "DiscoveryHubApp", "FESearchHost", "SearchHost", "SoftLandingTask", "TextInputHost", "VisualAssistExe", "WebExperienceHostApp", "WindowsBackupClient", "WindowsMigration"
-$AppsToKill | ForEach-Object { Stop-Process -Name $_ -Force -ErrorAction SilentlyContinue }
-Start-Sleep -Seconds 2
+"AppActions", "CrossDeviceResume", "DesktopStickerEditorWin32Exe", "DiscoveryHubApp", "FESearchHost", "SearchHost", "SoftLandingTask", "TextInputHost", "VisualAssistExe", "WebExperienceHostApp", "WindowsBackupClient", "WindowsMigration" | ForEach-Object {
+    Stop-Process -Name $_ -Force -ErrorAction SilentlyContinue
+}
+Start-Sleep -Seconds 1
 
 $SettingsDat = "$env:LOCALAPPDATA\Packages\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\Settings\settings.dat"
 if (Test-Path $SettingsDat) {
     reg load "HKLM\Settings" $SettingsDat 2>$null
     if ($LASTEXITCODE -eq 0) {
-        # Original Apps
-        Set-Registry -Path "HKLM:\Settings\LocalState\DisabledApps" -Name "Microsoft.Paint_8wekyb3d8bbwe" -Value ([byte[]](0x01,0x61,0xed,0x11,0x34,0xf7,0x9f,0xdc,0x01)) -Type "Binary"
-        Set-Registry -Path "HKLM:\Settings\LocalState\DisabledApps" -Name "Microsoft.Windows.Photos_8wekyb3d8bbwe" -Value ([byte[]](0x01,0x61,0xed,0x11,0x34,0xf7,0x9f,0xdc,0x01)) -Type "Binary"
-        Set-Registry -Path "HKLM:\Settings\LocalState\DisabledApps" -Name "MicrosoftWindows.Client.CBS_cw5n1h2txyewy" -Value ([byte[]](0x01,0x61,0xed,0x11,0x34,0xf7,0x9f,0xdc,0x01)) -Type "Binary"
+        $State = "HKLM:\Settings\LocalState"
+        $Val1  = [byte[]](0x01,0x61,0xed,0x11,0x34,0xf7,0x9f,0xdc,0x01)
         
-        # New System Settings (Moved from main loop to fix access denied)
-        Set-Registry -Path "HKLM:\Settings\LocalState" -Name "VideoAutoplay" -Value ([byte[]](0x00,0x96,0x9d,0x69,0x8d,0xcd,0x93,0xdc,0x01)) -Type "Binary"
-        Set-Registry -Path "HKLM:\Settings\LocalState" -Name "EnableAppInstallNotifications" -Value ([byte[]](0x00,0x36,0xd0,0x88,0x8e,0xcd,0x93,0xdc,0x01)) -Type "Binary"
-        Set-Registry -Path "HKLM:\Settings\LocalState\PersistentSettings" -Name "PersonalizationEnabled" -Value ([byte[]](0x00,0x0d,0x56,0xa1,0x8a,0xcd,0x93,0xdc,0x01)) -Type "Binary"
+        Set-Registry -Path "$State\DisabledApps" -Name "Microsoft.Paint_8wekyb3d8bbwe" -Value $Val1 -Type "Binary"
+        Set-Registry -Path "$State\DisabledApps" -Name "Microsoft.Windows.Photos_8wekyb3d8bbwe" -Value $Val1 -Type "Binary"
+        Set-Registry -Path "$State\DisabledApps" -Name "MicrosoftWindows.Client.CBS_cw5n1h2txyewy" -Value $Val1 -Type "Binary"
+        
+        Set-Registry -Path $State -Name "VideoAutoplay" -Value ([byte[]](0x00,0x96,0x9d,0x69,0x8d,0xcd,0x93,0xdc,0x01)) -Type "Binary"
+        Set-Registry -Path $State -Name "EnableAppInstallNotifications" -Value ([byte[]](0x00,0x36,0xd0,0x88,0x8e,0xcd,0x93,0xdc,0x01)) -Type "Binary"
+        Set-Registry -Path "$State\PersistentSettings" -Name "PersonalizationEnabled" -Value ([byte[]](0x00,0x0d,0x56,0xa1,0x8a,0xcd,0x93,0xdc,0x01)) -Type "Binary"
 
-        [gc]::Collect()
-        Start-Sleep -Seconds 2
-        reg unload "HKLM\Settings" >$null 2>&1
+        [GC]::Collect()
+        Start-Sleep -Seconds 1
+        reg unload "HKLM\Settings" 2>$null | Out-Null
     }
 }
 
@@ -912,186 +927,108 @@ if (Test-Path $PowerReg) {
 $MonStore = Get-ChildItem -Path "HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\MonitorDataStore" -Recurse -ErrorAction SilentlyContinue
 foreach ($M in $MonStore) { Set-Registry -Path $M.PSPath -Name "AutoColorManagementEnabled" -Value 0 }
 
-
-# # --- ALBUS SERVICES: TIMER RESOLUTION & AUDIO ---
 Status "deploying albus core optimization engine..." "step"
+$Exe = "$env:SystemRoot\AlbusX.exe"
+$Svc = "AlbusXSvc"
 
-$SourceURL = "https://raw.githubusercontent.com/oqullcan/blablabla/main/albus/albus.cs"
-$CSFile    = "$env:SystemRoot\AlbusX.cs"
-$ExeFile   = "$env:SystemRoot\AlbusX.exe"
-$CSC       = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-$SvcName   = "AlbusXSvc"
+# cleanup legacy deployment & enforce fresh install
+if (Get-Service $Svc -ErrorAction Ignore) { Stop-Service $Svc -Force -ErrorAction Ignore; sc.exe delete $Svc >$null 2>&1 }
+if (Test-Path $Exe) { Remove-Item $Exe -Force -ErrorAction SilentlyContinue }
+Start-Sleep -Seconds 1
 
-try {
-    # 1. Cleanup Legacy
-    if (Get-Service -Name $SvcName -ErrorAction SilentlyContinue) {
-        Stop-Service -Name $SvcName -Force -ErrorAction SilentlyContinue
-        sc.exe delete $SvcName | Out-Null
-        Start-Sleep -Seconds 1
-    }
+# fetch & compile payload
+Status "fetching & compiling albus native payload..." "info"
+$CS = "$env:SystemRoot\AlbusX.cs"
+$CSC = "$env:windir\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+try { Invoke-WebRequest "https://raw.githubusercontent.com/oqullcan/blablabla/main/albus/albus.cs" -OutFile $CS -UseBasicParsing -ErrorAction Stop } catch {}
 
-    # 2. Fetch Source from GitHub
-    Status "fetching albus core source from github..." "info"
-    Invoke-WebRequest -Uri $SourceURL -OutFile $CSFile -UseBasicParsing -ErrorAction Stop
+if ((Test-Path $CS) -and (Test-Path $CSC)) {
+    & $CSC -r:System.ServiceProcess.dll -r:System.Configuration.Install.dll -r:System.Management.dll -out:"$Exe" "$CS" >$null 2>&1
+    Remove-Item $CS -Force -ErrorAction SilentlyContinue
+}
 
-    # 3. Compile Native Payload
-    if (Test-Path $CSFile) {
-        if (Test-Path $CSC) {
-            Status "compiling albus x native engine..." "info"
-            
-            $Refs = @(
-                "-r:System.ServiceProcess.dll",
-                "-r:System.Configuration.Install.dll",
-                "-r:System.Management.dll"
-            ) -join " "
-            
-            & $CSC $Refs -out:$ExeFile $CSFile -WindowStyle Hidden | Out-Null
-            Remove-Item $CSFile -Force
-            
-            if (Test-Path $ExeFile) {
-                # 4. Deploy Service
-                Status "installing albus core system service..." "info"
-                New-Service -Name $SvcName -BinaryPathName $ExeFile -DisplayName "AlbusX" -Description "Albus High-Performance Engine" -StartupType Automatic -ErrorAction SilentlyContinue | Out-Null
-                
-                # Failure Policy (Auto-Restart)
-                sc.exe failure $SvcName reset= 60 actions= restart/5000/restart/10000/restart/30000 | Out-Null
-                
-                # Start
-                Start-Service -Name $SvcName -ErrorAction SilentlyContinue | Out-Null
-                Status "albus kernel service, timer resolution & audio is active." "done"
-            } else {
-                Status "compilation failed. check .net framework 4.0 status." "fail"
-            }
-        }
-    }
-} catch { Status "failed to deploy albus core services from github." "warn" }
+# deploy & execute service
+if (Test-Path $Exe) {
+    Status "installing albus core system service..." "info"
+    New-Service -Name $Svc -BinaryPathName $Exe -DisplayName "AlbusX" -Description "Albus Core Engine. Enforces sub-millisecond kernel timer resolution, audio thread prioritization, and continuous low-latency system optimizations." -StartupType Automatic -ErrorAction SilentlyContinue | Out-Null
+    sc.exe failure $Svc reset= 60 actions= restart/5000/restart/10000/restart/30000 >$null 2>&1
+    Start-Service $Svc -ErrorAction SilentlyContinue | Out-Null
+    Status "albus service, timer resolution & audio is active." "done"
+} else { Status "engine payload deployment failed." "warn" }
 
 Status "enforcing global kernel timer resolution requests..." "step"
-$RegKernel = "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\kernel"
-Set-Registry -Path $RegKernel -Name "GlobalTimerResolutionRequests" -Value 1 -Type "DWord"
+Set-Registry -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\kernel" -Name "GlobalTimerResolutionRequests" -Value 1 -Type "DWord"
 
 # system-wide process mitigations (exploit guard)
 Status "disabling system-wide exploit guard mitigations..." "step"
-try {
-    $MitigationValues = (Get-Command -Name 'Set-ProcessMitigation').Parameters['Disable'].Attributes.ValidValues
-    foreach ($V in $MitigationValues) {
-        Set-ProcessMitigation -SYSTEM -Disable $V.ToString() -ErrorAction SilentlyContinue -WarningAction SilentlyContinue | Out-Null
-    }
-} catch { Status "failed to access process mitigation module." "warn" }
-
-# ifeo & kernel mitigation payload
-Status "injecting exploit guard bypass payload (binary 0x22) to core processes..." "step"
-$KernelPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Kernel"
-$Length = 38
-try {
-    $AuditVal = Get-ItemProperty -Path $KernelPath -Name "MitigationAuditOptions" -ErrorAction SilentlyContinue
-    if ($AuditVal.MitigationAuditOptions -and $AuditVal.MitigationAuditOptions.Length -gt 0) { $Length = $AuditVal.MitigationAuditOptions.Length }
-} catch { }
-
-# building the payload
-[byte[]]$Payload = New-Object byte[] $Length
-for ($i = 0; $i -lt $Length; $i++) { $Payload[$i] = 34 }
-
-$TargetProcs = @(
-    "fontdrvhost.exe", "dwm.exe", "lsass.exe", "svchost.exe", "WmiPrvSE.exe",
-    "winlogon.exe", "csrss.exe", "audiodg.exe", "ntoskrnl.exe", "services.exe",
-    "explorer.exe", "taskhostw.exe", "sihost.exe"
-)
-
-foreach ($Proc in $TargetProcs) {
-    $PPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$Proc"
-    Set-Registry -Path $PPath -Name "MitigationOptions" -Value $Payload -Type "Binary"
-    Set-Registry -Path $PPath -Name "MitigationAuditOptions" -Value $Payload -Type "Binary"
+(Get-Command -Name 'Set-ProcessMitigation' -ErrorAction SilentlyContinue).Parameters['Disable'].Attributes.ValidValues | ForEach-Object {
+    Set-ProcessMitigation -SYSTEM -Disable $_.ToString() -ErrorAction SilentlyContinue -WarningAction SilentlyContinue | Out-Null
 }
 
-# kernel level optimization
+# ifeo & kernel mitigation payload (inject binary 0x22 to core procs)
+Status "injecting exploit guard bypass payload to core processes..." "step"
+$KernelPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Kernel"
+$AuditVal = Get-ItemProperty -Path $KernelPath -Name "MitigationAuditOptions" -ErrorAction SilentlyContinue
+$Len = if ($AuditVal.MitigationAuditOptions) { $AuditVal.MitigationAuditOptions.Length } else { 38 }
+[byte[]]$Payload = [System.Linq.Enumerable]::Repeat([byte]34, $Len)
+
+"fontdrvhost.exe", "dwm.exe", "lsass.exe", "svchost.exe", "WmiPrvSE.exe", "winlogon.exe", "csrss.exe", "audiodg.exe", "ntoskrnl.exe", "services.exe", "explorer.exe", "taskhostw.exe", "sihost.exe" | ForEach-Object {
+    $P = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$_"
+    Set-Registry -Path $P -Name "MitigationOptions" -Value $Payload -Type "Binary"
+    Set-Registry -Path $P -Name "MitigationAuditOptions" -Value $Payload -Type "Binary"
+}
 Set-Registry -Path $KernelPath -Name "MitigationOptions" -Value $Payload -Type "Binary"
 Set-Registry -Path $KernelPath -Name "MitigationAuditOptions" -Value $Payload -Type "Binary"
 
 # intel tsx (transactional synchronization extensions)
 Status "optimizing intel tsx (transactional synchronization)..." "step"
-try {
-    $CPU = Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue
-    if ($CPU.Manufacturer -eq 'GenuineIntel') {
-        Set-Registry -Path $KernelPath -Name "DisableTSX" -Value 0 -Type "DWord"
-    } else {
-        if (Get-ItemProperty -Path $KernelPath -Name "DisableTSX" -ErrorAction SilentlyContinue) {
-            Remove-ItemProperty -Path $KernelPath -Name "DisableTSX" -ErrorAction SilentlyContinue 
-        }
-    }
-} catch { Status "failed to configure tsx parameters." "warn" }
+if ((Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue).Manufacturer -eq 'GenuineIntel') {
+    Set-Registry -Path $KernelPath -Name "DisableTSX" -Value 0 -Type "DWord"
+} else { Remove-ItemProperty -Path $KernelPath -Name "DisableTSX" -ErrorAction SilentlyContinue }
 
-# remove ghost devices
+# ghost devices cleanup
 Status "removing ghost/hidden pnp devices (cleaning leftovers)..." "step"
-$Ghosts = Get-PnpDevice -ErrorAction SilentlyContinue | Where-Object { 
-    $_.Present -eq $false -and 
-    $_.InstanceId -notmatch '^(ROOT|SWD|HTREE|DISPLAY|BTHENUM)\\' 
+Get-PnpDevice -ErrorAction SilentlyContinue | Where-Object { -not $_.Present -and $_.InstanceId -notmatch '^(ROOT|SWD|HTREE|DISPLAY|BTHENUM)\\' } | ForEach-Object {
+    pnputil /remove-device $_.InstanceId /quiet >$null 2>&1
 }
-foreach ($G in $Ghosts) { pnputil /remove-device $G.InstanceId /quiet >$null 2>&1 }
 
-# storage write-cache
+# disk cache optimization
 Status "optimizing internal storage write-cache performance..." "step"
-$Disks = Get-CimInstance -ClassName Win32_DiskDrive -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceType -ne "USB" }
-foreach ($D in $Disks) {
-    if ($D.PNPDeviceID) {
-        $P = "HKLM:\SYSTEM\CurrentControlSet\Enum\$($D.PNPDeviceID)\Device Parameters\Disk"
-        Set-Registry -Path $P -Name "UserWriteCacheSetting" -Value 1
-        Set-Registry -Path $P -Name "CacheIsPowerProtected" -Value 1
-    }
+Get-CimInstance Win32_DiskDrive -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceType -ne "USB" -and $_.PNPDeviceID } | ForEach-Object {
+    $P = "HKLM:\SYSTEM\CurrentControlSet\Enum\$($_.PNPDeviceID)\Device Parameters\Disk"
+    Set-Registry -Path $P -Name "UserWriteCacheSetting" -Value 1
+    Set-Registry -Path $P -Name "CacheIsPowerProtected" -Value 1
 }
 
-# Deep Device Power Management
+# aggressive deep device power saving disable
 Status "disabling aggressive power saving for all hardware classes..." "step"
-$PnpDevices = Get-PnpDevice -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'OK' -or $_.Status -eq 'Unknown' }
-foreach ($D in $PnpDevices) {
-    $ID = $D.InstanceId
-    $Class = $D.Class
-    $P = "HKLM:\SYSTEM\CurrentControlSet\Enum\$ID\Device Parameters"
-
-    # General Performance (WDF & Suspend)
-    Set-Registry -Path "$P\WDF" -Name "IdleInWorkingState" -Value 0
-    Set-Registry -Path $P -Name "SelectiveSuspendEnabled" -Value 0
-    Set-Registry -Path $P -Name "SelectiveSuspendOn" -Value 0
-    Set-Registry -Path $P -Name "EnhancedPowerManagementEnabled" -Value 0
-    Set-Registry -Path $P -Name "WaitWakeEnabled" -Value 0
+Get-PnpDevice -ErrorAction SilentlyContinue | Where-Object { $_.Status -match 'OK|Unknown' } | ForEach-Object {
+    $I = $_.InstanceId; $P = "HKLM:\SYSTEM\CurrentControlSet\Enum\$I\Device Parameters"
     
-    # MSPower_DeviceEnable (WMI)
-    try {
-        $WmiPath = "*$($ID.Replace('\', '\\'))*"
-        $Power = Get-WmiObject -Class MSPower_DeviceEnable -Namespace root\wmi -ErrorAction SilentlyContinue | Where-Object { $_.InstanceName -like $WmiPath }
-        if ($Power) { $Power.Enable = $false; $Power.Put() | Out-Null }
-    } catch {}
-
-    # Network Adapter Specifics (EEE & PME)
-    if ($Class -eq "Net") {
-        # Fetching driver-specific class key if possible
-        $NetKey = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Enum\$ID" -Name "Driver" -ErrorAction SilentlyContinue
-        if ($NetKey.Driver) {
-            $CP = "HKLM:\SYSTEM\CurrentControlSet\Control\Class\$($NetKey.Driver)"
-            Set-Registry -Path $CP -Name "PnPCapabilities" -Value 24
-            $EEEStrings = @("AdvancedEEE", "*EEE", "EEELinkAdvertisement", "SipsEnabled", "ULPMode", "GigaLite", "EnableGreenEthernet", "PowerSavingMode", "S5WakeOnLan", "*WakeOnMagicPacket", "*ModernStandbyWoLMagicPacket", "*WakeOnPattern", "WakeOnLink")
-            foreach ($E in $EEEStrings) { Set-Registry -Path $CP -Name $E -Value "0" -Type "String" }
-        }
+    Set-Registry -Path "$P\WDF" -Name "IdleInWorkingState" -Value 0
+    "SelectiveSuspendEnabled", "SelectiveSuspendOn", "EnhancedPowerManagementEnabled", "WaitWakeEnabled" | ForEach-Object {
+        Set-Registry -Path $P -Name $_ -Value 0
     }
+    
+    Get-WmiObject -Class MSPower_DeviceEnable -Namespace root\wmi -ErrorAction SilentlyContinue | Where-Object { $_.InstanceName -like "*$($I.Replace('\', '\\'))*" } | ForEach-Object { $_.Enable = $false; $_.Put() | Out-Null }
 }
 
-# DMA Remapping (Kernel DMA Guard)
+# dma remapping & kernel guard policy
 Status "optimizing dma remapping & kernel guard policy..." "step"
 Set-Registry -Path "HKLM:\SOFTWARE\Microsoft\PolicyManager\default\DmaGuard\DeviceEnumerationPolicy" -Name "value" -Value 2
 Get-ChildItem -Path "HKLM:\SYSTEM\CurrentControlSet\Services" -ErrorAction SilentlyContinue | ForEach-Object {
-    $CompPath = "$($_.Name.Replace('HKEY_LOCAL_MACHINE', 'HKLM'))\Parameters"
-    if (Test-Path $CompPath) {
-        $Val = Get-ItemProperty -Path $CompPath -Name "DmaRemappingCompatible" -ErrorAction SilentlyContinue
-        if ($null -ne $Val) { Set-Registry -Path $CompPath -Name "DmaRemappingCompatible" -Value 0 }
+    $P = "$($_.Name.Replace('HKEY_LOCAL_MACHINE', 'HKLM'))\Parameters"
+    if ((Get-ItemProperty $P -Name "DmaRemappingCompatible" -ErrorAction SilentlyContinue) -ne $null) {
+        Set-Registry -Path $P -Name "DmaRemappingCompatible" -Value 0
     }
 }
 
 # ui & shell optimization
-Status "applying pro black theme & unpinning taskbar..." "step"
+Status "applying ui & shell settings..." "step"
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing -ErrorAction SilentlyContinue 
 $SW = [System.Windows.Forms.SystemInformation]::PrimaryMonitorSize.Width
 $SH = [System.Windows.Forms.SystemInformation]::PrimaryMonitorSize.Height
-$BlackFile = "C:\Windows\Black.jpg"
+$BlackFile = "C:\Windows\Wallpaper.jpg"
 if (-not (Test-Path $BlackFile)) {
     try {
         $Bmp = New-Object System.Drawing.Bitmap $SW, $SH
@@ -1141,7 +1078,6 @@ Set-Registry -Path "-HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Ta
 Remove-Item -Recurse -Force "$env:USERPROFILE\AppData\Roaming\Microsoft\Internet Explorer\Quick Launch" -ErrorAction SilentlyContinue | Out-Null
 
 # context menu debloat
-Status "cleaning up bloated context menu items..." "step"
 $MenuTweaks = @(
     @{ Path = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer"; Name = "NoCustomizeThisFolder"; Value = 1 },
     @{ Path = "-HKCR:\Folder\shell\pintohome"; Name = ""; Value = "" },
@@ -1159,7 +1095,6 @@ $MenuTweaks = @(
 foreach ($M in $MenuTweaks) { Set-Registry -Path $M.Path -Name $M.Name -Value $M.Value -Type $(if($M.Type){$M.Type}else{"DWord"}) }
 
 # start menu reset & organization
-Status "resetting start menu layout & shortcuts..." "step"
 if ([Environment]::OSVersion.Version.Major -eq 10 -and [Environment]::OSVersion.Version.Build -lt 22000) {
     $LayoutXML = 'C:\Windows\StartMenuLayout.xml'
     $XMLContent = @"
@@ -1344,7 +1279,7 @@ if ($GameInput) {
     Start-Process "msiexec.exe" -ArgumentList "/x $Guid /qn /norestart" -Wait -NoNewWindow
 }
 
-# startup apps & registry persistence & 3rd party scheduled tasks 
+# clearing all 3rd party startup applications, registry persistence, and scheduled tasks
 Status "clearing all 3rd party startup applications, registry persistence, and scheduled tasks..." "step"
 $RunKeys = @(
     "HKCU:\Software\Microsoft\Windows\CurrentVersion\RunNotification",
@@ -1376,9 +1311,9 @@ Get-ChildItem $TaskFiles -ErrorAction SilentlyContinue | Where-Object { $_.Name 
     Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
 }
 
-# =============================================================================================================================================================================
-# --- GPU DRIVER INSTALLATION & DEBLOAT ---
-# =============================================================================================================================================================================
+# ================================================== #
+#       graphics driver installation & debloat       #
+# ================================================== #
 
 function Show-GPU-Menu {
     Write-Host ""
@@ -1389,10 +1324,10 @@ function Show-GPU-Menu {
     Write-Host ""
 }
 
-
-:GPULoop while ($true) {
+:gpu while ($true) {
     Show-GPU-Menu
-    $Choice = Read-Host " enter choice [1-3]"4
+    $Choice = Read-Host " enter choice > "
+    Write-Host ""
     if ($Choice -match '^[1-3]$') {
         switch ($Choice) {
             1 {
@@ -1675,24 +1610,22 @@ function Show-GPU-Menu {
                 pause
             }
 
-            3 { break GPULoop }
+            3 { break gpu }
         }
     }
 }
 
-# interrupt management (system-wide msi mode)
 Status "optimizing interrupt management & msi mode..." "step"
 $PciDevices = Get-PnpDevice -InstanceId "PCI\*" -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'OK' -or $_.Status -eq 'Unknown' }
 foreach ($D in $PciDevices) {
     if ($D.InstanceId) {
         $P = "HKLM:\SYSTEM\CurrentControlSet\Enum\$($D.InstanceId)\Device Parameters\Interrupt Management"
         Set-Registry -Path "$P\MessageSignaledInterruptProperties" -Name "MSISupported" -Value 1
-        # remove affinity priority
         if (Test-Path "$P\Affinity Policy") { Remove-ItemProperty -Path "$P\Affinity Policy" -Name "DevicePriority" -ErrorAction SilentlyContinue }
     }
 }
 
-# final cleanup
+Write-Host ""
 Status "albus-playbook has finished all tasks." "done"
 pause
 
