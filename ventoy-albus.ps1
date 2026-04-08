@@ -228,3 +228,8 @@ if ($VentoyVol) {
 } else {
     status "config was placed in $BuildDir. move folders to your ventoy root." "info"
 }
+
+Write-Host ""
+status "exiting in 10 seconds..." "info"
+Start-Sleep -Seconds 10
+Exit
