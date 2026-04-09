@@ -423,18 +423,6 @@ $Tweaks = @(
     # --- PERSONALIZATION & THEMES ---
     @{ Path = "HKCU:\Control Panel\Desktop"; Name = "Wallpaper"; Value = ""; Type = "String" }
     @{ Path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Wallpapers"; Name = "BackgroundType"; Value = 1; Type = "DWord" }
-    @{ Path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"; Name = "AppsUseLightTheme"; Value = 0; Type = "DWord" }
-    @{ Path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"; Name = "ColorPrevalence"; Value = 1; Type = "DWord" }
-    @{ Path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"; Name = "EnableTransparency"; Value = 0; Type = "DWord" }
-    @{ Path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"; Name = "SystemUsesLightTheme"; Value = 0; Type = "DWord" }
-    @{ Path = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize"; Name = "AppsUseLightTheme"; Value = 0; Type = "DWord" }
-    @{ Path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Accent"; Name = "AccentPalette"; Value = ([byte[]](0x64,0x64,0x64,0x00,0x6b,0x6b,0x6b,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00)); Type = "Binary" }
-    @{ Path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Accent"; Name = "StartColorMenu"; Value = 0; Type = "DWord" }
-    @{ Path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Accent"; Name = "AccentColorMenu"; Value = 0; Type = "DWord" }
-    @{ Path = "HKCU:\Software\Microsoft\Windows\DWM"; Name = "EnableWindowColorization"; Value = 1; Type = "DWord" }
-    @{ Path = "HKCU:\Software\Microsoft\Windows\DWM"; Name = "AccentColor"; Value = 0xff191919; Type = "DWord" }
-    @{ Path = "HKCU:\Software\Microsoft\Windows\DWM"; Name = "ColorizationColor"; Value = 0xc4191919; Type = "DWord" }
-    @{ Path = "HKCU:\Software\Microsoft\Windows\DWM"; Name = "ColorizationAfterglow"; Value = 0xc4191919; Type = "DWord" }
     @{ Path = "HKCU:\Control Panel\Colors"; Name = "Background"; Value = "0 0 0"; Type = "String" }
     @{ Path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\HideDesktopIcons\ClassicStartMenu"; Name = "{645FF040-5081-101B-9F08-00AA002F954E}"; Value = 1; Type = "DWord" }
     @{ Path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\HideDesktopIcons\NewStartPanel"; Name = "{645FF040-5081-101B-9F08-00AA002F954E}"; Value = 1; Type = "DWord" }
@@ -1813,8 +1801,10 @@ Status "applying bcdedit boot optimizations..." "step"
 & label C: Albus 2>&1 | Out-Null
 & bcdedit.exe /set "{current}" description "Albus Playbook" 2>&1 | Out-Null
 
-# ui & shell optimization
-Status "applying ui & shell settings..." "step"
+# ui & shell optimization (true black theme)
+Status "applying true black ui & shell settings..." "step"
+
+# create black image for lock screen
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing -ErrorAction SilentlyContinue 
 $SW = [System.Windows.Forms.SystemInformation]::PrimaryMonitorSize.Width
 $SH = [System.Windows.Forms.SystemInformation]::PrimaryMonitorSize.Height
@@ -1827,10 +1817,24 @@ if (-not (Test-Path $BlackFile)) {
         $Gfx.Dispose(); $Bmp.Save($BlackFile); $Bmp.Dispose()
     } catch {}
 }
-# apply theme & wallpaper
+Set-Registry -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Wallpapers" -Name "BackgroundType" -Value 1 -Type "DWord"
+Set-Registry -Path "HKCU:\Control Panel\Colors" -Name "Background" -Value "0 0 0" -Type "String"
+Set-Registry -Path "HKCU:\Control Panel\Desktop" -Name "WallPaper" -Value "" -Type "String"
+Set-Registry -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize" -Name "AppsUseLightTheme" -Value 0 -Type "DWord"
+Set-Registry -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize" -Name "SystemUsesLightTheme" -Value 0 -Type "DWord"
+Set-Registry -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize" -Name "EnableTransparency" -Value 0 -Type "DWord"
+Set-Registry -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize" -Name "ColorPrevalence" -Value 1 -Type "DWord"
+Set-Registry -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Accent" -Name "AccentColorMenu" -Value 0 -Type "DWord"
+Set-Registry -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Accent" -Name "StartColorMenu" -Value 0 -Type "DWord"
+$AccentPalette = [byte[]](0x64,0x64,0x64,0x00, 0x6b,0x6b,0x6b,0x00, 0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00)
+Set-Registry -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Accent" -Name "AccentPalette" -Value $AccentPalette -Type "Binary"
+Set-Registry -Path "HKCU:\Software\Microsoft\Windows\DWM" -Name "AccentColor" -Value -15132391 -Type "DWord"
+Set-Registry -Path "HKCU:\Software\Microsoft\Windows\DWM" -Name "ColorizationAfterglow" -Value -1004988135 -Type "DWord"
+Set-Registry -Path "HKCU:\Software\Microsoft\Windows\DWM" -Name "ColorizationColor" -Value -1004988135 -Type "DWord"
+Set-Registry -Path "HKCU:\Software\Microsoft\Windows\DWM" -Name "EnableWindowColorization" -Value 1 -Type "DWord"
 Set-Registry -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\PersonalizationCSP" -Name "LockScreenImagePath" -Value $BlackFile -Type "String"
 Set-Registry -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\PersonalizationCSP" -Name "LockScreenImageStatus" -Value 1 -Type "DWord"
-Set-Registry -Path "HKCU:\Control Panel\Desktop" -Name "Wallpaper" -Value $BlackFile -Type "String"
+
 rundll32.exe user32.dll, UpdatePerUserSystemParameters
 
 # force tray icon visibility
@@ -2024,7 +2028,7 @@ if ($LegacyEdge) {
     dism.exe /online /Remove-Package /PackageName:$LegacyEdge /quiet /norestart >$null 2>&1
 }
 # revert region
-if ($OldRegion) { Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Control Panel\DeviceRegion' -Name DeviceRegion -Value $OldRegion -Force }
+if ($OldRegion) { Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Control Panel\DeviceRegion' -Name DeviceRegion -Value $OldRegion -Force -ErrorAction SilentlyContinue }
 
 # onedrive
 Stop-Process -Force -Name OneDrive -ErrorAction SilentlyContinue | Out-Null
