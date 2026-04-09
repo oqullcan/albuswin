@@ -1120,7 +1120,6 @@ $Tweaks = @(
     @{ Path = "HKLM:\Software\Policies\Microsoft\WindowsMovieMaker"; Name = "WebHelp"; Value = 1; Type = "DWord" }
     @{ Path = "HKLM:\Software\Policies\Microsoft\WindowsMovieMaker"; Name = "CodecDownload"; Value = 1; Type = "DWord" }
     @{ Path = "HKLM:\Software\Policies\Microsoft\WindowsMovieMaker"; Name = "WebPublish"; Value = 1; Type = "DWord" }
-    @{ Path = "HKCU:\Software\NVIDIA Corporation\NVControlPanel2\Client"; Name = "OptInOrOutPreference"; Value = 0; Type = "DWord" }
     @{ Path = "HKLM:\SYSTEM\ControlSet001\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules"; Name = "Block-Unified-Telemetry-Client"; Value = "v2.31|Action=Block|Active=TRUE|Dir=Out|RA42=IntErnet|RA62=IntErnet|App=%SystemRoot%\system32\svchost.exe|Svc=DiagTrack|Name=Block-Unified-Telemetry-Client|Desc=Block-Unified-Telemetry-Client|EmbedCtxt=DiagTrack|"; Type = "String" }
     @{ Path = "HKLM:\SYSTEM\ControlSet001\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules"; Name = "Block-Windows-Error-Reporting"; Value = "v2.31|Action=Block|Active=TRUE|Dir=Out|RA42=IntErnet|RA62=IntErnet|App=%SystemRoot%\system32\svchost.exe|Svc=WerSvc|Name=Block-Unified-Telemetry-Client|Desc=Block-Windows-Error-Reporting|EmbedCtxt=WerSvc|"; Type = "String" }
     @{ Path = "HKLM:\SYSTEM\ControlSet001\Services\SharedAccess\Defaults\FirewallPolicy\FirewallRules"; Name = "Block-Unified-Telemetry-Client"; Value = "v2.31|Action=Block|Active=TRUE|Dir=Out|RA42=IntErnet|RA62=IntErnet|App=%SystemRoot%\system32\svchost.exe|Svc=DiagTrack|Name=Block-Unified-Telemetry-Client|Desc=Block-Unified-Telemetry-Client|EmbedCtxt=DiagTrack|"; Type = "String" }
@@ -1483,12 +1482,17 @@ foreach ($T in $ServiceTweaks) {
 
 Status "disabling background system tasks..." "step"
 $TasksToDisable = @(
+    "Microsoft\Windows\Application Experience\PcaPatchDbTask",
     "Microsoft\Windows\AppxDeploymentClient\UCPD Velocity",
+    "Microsoft\Windows\Customer Experience Improvement Program\Consolidator",
+    "Microsoft\Windows\Customer Experience Improvement Program\UsbCeip",
+    "Microsoft\Windows\DiskDiagnostic\Microsoft-Windows-DiskDiagnosticDataCollector",
     "Microsoft\Windows\ExploitGuard\ExploitGuard MDM Policy Refresh",
     "Microsoft\Windows\Windows Defender\Windows Defender Cache Maintenance",
     "Microsoft\Windows\Windows Defender\Windows Defender Cleanup",
     "Microsoft\Windows\Windows Defender\Windows Defender Scheduled Scan",
     "Microsoft\Windows\Windows Defender\Windows Defender Verification",
+    "Microsoft\Windows\Flighting\FeatureConfig\UsageDataReporting",
     "Microsoft\Windows\Defrag\ScheduledDefrag"
 )
 foreach ($Task in $TasksToDisable) {
@@ -2190,7 +2194,8 @@ function Show-GPU-Menu {
                     Set-Registry -Path "HKCU:\Software\NVIDIA Corporation\NvTray" -Name "StartOnLogin" -Value 0
                     Set-Registry -Path "HKLM:\SYSTEM\CurrentControlSet\Services\nvlddmkm\FTS" -Name "EnableGR535" -Value 0
                     Set-Registry -Path "HKLM:\SYSTEM\ControlSet001\Services\nvlddmkm\Parameters\FTS" -Name "EnableGR535" -Value 0
-                        
+                    Set-Registry -Path "HKCU:\Software\NVIDIA Corporation\NVControlPanel2\Client" -Name "OptInOrOutPreference" -Value 0
+                    
                     # unblock drs files
                     $DRSPath = "C:\ProgramData\NVIDIA Corporation\Drs"
                     if (Test-Path $DRSPath) { Get-ChildItem -Path $DRSPath -Recurse | Unblock-File -ErrorAction SilentlyContinue }
