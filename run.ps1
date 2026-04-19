@@ -18,7 +18,7 @@ $Privilege = $Identity.Split('\')[-1].ToLower()
 # path configuration
 $Env:InstallPath = "C:\Albus"
 $MinSudoPath = "$Env:InstallPath\MinSudo.exe"
-$RepoURL = "https://raw.githubusercontent.com/oqullcan/blablabla/refs/heads/main/albus.ps1"
+$RepoURL = "https://raw.githubusercontent.com/oqullcan/albuswin/refs/heads/main/albus.ps1"
 
 # albus status engine (unified)
 function Status ($Msg, $Type = "info") {
