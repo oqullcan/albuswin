@@ -13,7 +13,6 @@ if ($env:PROCESSOR_ARCHITECTURE -eq 'AMD64' -and -not [Environment]::Is64BitProc
 }
 
 # ── active user sid resolver ──────────────────────────────────────────────────
-# writes HKCU keys to the real user's hive, not SYSTEM/Default when running as TrustedInstaller
 $script:ActiveSID = $null
 try {
     $exp = Get-WmiObject Win32_Process -Filter "Name='explorer.exe'" -ErrorAction SilentlyContinue | Select-Object -First 1
