@@ -1273,9 +1273,6 @@ $Tweaks = @(
     @{ Path = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\OOBE"; Name = "DisableVoice"; Value = 1; Type = "DWord" }
     @{ Path = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\OOBE\AppSettings"; Name = "Skype-UserConsentAccepted"; Value = 0; Type = "DWord" }
 
-    # --- CONFIGURE WIN32PRIORITYSEPARATION ---
-    @{ Path = "HKLM:\SYSTEM\ControlSet001\Control\PriorityControl"; Name = "Win32PrioritySeparation"; Value = 38; Type = "DWord" }
-
     # --- CONFIGURE UPDATES ---
     @{ Path = "HKLM:\Software\Policies\Microsoft\WindowsStore"; Name = "AutoDownload"; Value = 4; Type = "DWord" }
     @{ Path = "HKLM:\Software\Policies\Microsoft\WindowsStore"; Name = "DisableOSUpgrade"; Value = 1; Type = "DWord" }
