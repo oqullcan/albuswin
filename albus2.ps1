@@ -2012,7 +2012,8 @@ function show-gpu-menu {
                     Set-Registry -Path "$P\MessageSignaledInterruptProperties" -Name "MSISupported" -Value 1
                     if (Test-Path "$P\Affinity Policy") {
                     Remove-ItemProperty -Path "$P\Affinity Policy" -Name "DevicePriority" -ErrorAction SilentlyContinue
-
+        }     
+    }
             # mpo fix
             Set-Registry "HKLM:\SOFTWARE\Microsoft\Windows\DWM" "OverlayTestMode" 5
             
@@ -2214,7 +2215,7 @@ function show-gpu-menu {
                     if (Test-Path "$P\Affinity Policy") {
                     Remove-ItemProperty -Path "$P\Affinity Policy" -Name "DevicePriority" -ErrorAction SilentlyContinue
         }
-    }
+        }
             status "amd driver installation complete." "done"
             break
         }
