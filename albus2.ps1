@@ -1305,17 +1305,26 @@ if (Test-Path $SettingsDat) {
     if ($LASTEXITCODE -eq 0) {
         $State = "HKLM:\Settings\LocalState"
         $Val1  = [byte[]](0x01,0x61,0xed,0x11,0x34,0xf7,0x9f,0xdc,0x01)
+        $Val0  = [byte[]](0x00,0x36,0xd0,0x88,0x8e,0xcd,0x93,0xdc,0x01)
+        
         Set-Registry -Path "$State\DisabledApps"       -Name "Microsoft.Paint_8wekyb3d8bbwe"                 -Value $Val1 -Type "Binary"
         Set-Registry -Path "$State\DisabledApps"       -Name "Microsoft.Windows.Photos_8wekyb3d8bbwe"        -Value $Val1 -Type "Binary"
         Set-Registry -Path "$State\DisabledApps"       -Name "MicrosoftWindows.Client.CBS_cw5n1h2txyewy"     -Value $Val1 -Type "Binary"
-        Set-Registry -Path $State                      -Name "VideoAutoplay"                                 -Value ([byte[]](0x00,0x96,0x9d,0x69,0x8d,0xcd,0x93,0xdc,0x01)) -Type "Binary"
-        Set-Registry -Path $State                      -Name "EnableAppInstallNotifications"                 -Value ([byte[]](0x00,0x36,0xd0,0x88,0x8e,0xcd,0x93,0xdc,0x01)) -Type "Binary"
+        Set-Registry -Path "$State\DisabledApps"       -Name "Microsoft.YourPhone_8wekyb3d8bbwe"             -Value $Val1 -Type "Binary"
+        
+        Set-Registry -Path $State                      -Name "VideoAutoplay"                                 -Value $Val0 -Type "Binary"
+        Set-Registry -Path $State                      -Name "EnableAppInstallNotifications"                 -Value $Val0 -Type "Binary"
+        Set-Registry -Path $State                      -Name "SearchSuggestionsEnabled"                      -Value $Val0 -Type "Binary"
+        Set-Registry -Path $State                      -Name "EnableCloudSearch"                             -Value $Val0 -Type "Binary"
+        Set-Registry -Path $State                      -Name "NewsAndInterestsEnabled"                       -Value $Val0 -Type "Binary"
+        Set-Registry -Path $State                      -Name "ShowRecentlyOpenedApps"                        -Value $Val0 -Type "Binary"
         Set-Registry -Path "$State\PersistentSettings" -Name "PersonalizationEnabled"                        -Value ([byte[]](0x00,0x0d,0x56,0xa1,0x8a,0xcd,0x93,0xdc,0x01)) -Type "Binary"
         [GC]::Collect()
         Start-Sleep -Seconds 1
         reg unload "HKLM\Settings" 2>$null | Out-Null
     }
 }
+
 
 # ── power plan ────────────────────────────────────────────────────────────────
 status "deploying albus power plan..." "step"
