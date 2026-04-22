@@ -1,7 +1,6 @@
-# ============================================================================================================================
-# albus playbook v2
-# https://github.com/oqullcan/albuswin
-# ============================================================================================================================
+# ──────────────────────────────────────────────────────────
+#  albus playbook v2 | https://github.com/oqullcan/albuswin
+# ──────────────────────────────────────────────────────────
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
@@ -119,7 +118,7 @@ $dest = "C:\Albus"
 if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Path $dest -Force | Out-Null }
 
 # ── software payload ──────────────────────────────────────────────────────────
-if (Test-Connection -ComputerName "8.8.8.8" -Count 1 -Quiet -ErrorAction SilentlyContinue) {
+if (Test-Connection -ComputerName "1.1.1.1" -Count 3 -Quiet -ErrorAction SilentlyContinue) {
     status "network available. initializing payload retrieval..." "step"
 
     # brave browser
@@ -1084,8 +1083,6 @@ try {
     Remove-Item "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe\DevHomeUpdate" -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe\OutlookUpdate"  -Recurse -Force -ErrorAction SilentlyContinue
 } catch { }
-
-# disable group by in downloads folder
 try {
     $folderPath = Join-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\FolderTypes' '{885a186e-a440-4ada-812b-db871b942259}'
     Get-ChildItem -Path $folderPath -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
@@ -1093,8 +1090,6 @@ try {
         if ($null -ne $props.GroupBy) { Set-ItemProperty -Path $_.PSPath -Name GroupBy -Value '' -ErrorAction SilentlyContinue }
     }
 } catch { }
-
-# refresh shell bags
 try {
     $bags = 'HKCU:\Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\Bags'
     if (Test-Path $bags) {
@@ -1339,7 +1334,7 @@ else {
     $AlbusGUID
 }
 
-& powercfg /changename $AlbusGUID "Albus" "minimal latency, unparked cores, peak throughput." 2>&1 | Out-Null
+& powercfg /changename $AlbusGUID "Albus 2.0" "minimal latency, unparked cores, peak throughput." 2>&1 | Out-Null
 
 # delete all other schemes
 (& powercfg /l 2>$null | Out-String) -split "`r?`n" | ForEach-Object {
@@ -1408,15 +1403,11 @@ else {
 & powercfg /SETACTIVE $AlbusGUID 2>&1 | Out-Null
 & powercfg /hibernate off 2>$null | Out-Null
 
-@("HKLM:\SYSTEM\CurrentControlSet\Control\Power|HibernateEnabled|0",
-  "HKLM:\SYSTEM\CurrentControlSet\Control\Power|HibernateEnabledDefault|0",
-  "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power|HiberbootEnabled|0",
-  "HKLM:\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling|PowerThrottlingOff|1") | ForEach-Object {
-    $p = $_ -split '\|'
-    Set-Registry -Path $p[0] -Name $p[1] -Value $p[2]
-}
+Set-Registry -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Power" -Name "HibernateEnabled" -Value 0 -Type "DWord"
+Set-Registry -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Power" -Name "HibernateEnabledDefault" -Value 0 -Type "DWord"
+Set-Registry -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power" -Name "HiberbootEnabled" -Value 0 -Type "DWord"
+Set-Registry -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling" -Name "PowerThrottlingOff" -Value 1 -Type "DWord"
 
-# monitor store
 Get-ChildItem "HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\MonitorDataStore" -Recurse -ErrorAction SilentlyContinue |
     ForEach-Object { Set-Registry -Path $_.PSPath -Name "AutoColorManagementEnabled" -Value 0 }
 
@@ -1431,7 +1422,6 @@ $CSPath   = "$env:SystemRoot\AlbusX.cs"
 $CSC      = "$env:windir\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 $SrcURL   = "https://raw.githubusercontent.com/oqullcan/albuswin/refs/heads/main/albus/albus2.cs"
 
-# remove existing
 if (Get-Service $SvcName -ErrorAction SilentlyContinue) {
     Stop-Service $SvcName -Force -ErrorAction SilentlyContinue
     & sc.exe delete $SvcName >$null 2>&1
@@ -1439,13 +1429,11 @@ if (Get-Service $SvcName -ErrorAction SilentlyContinue) {
 }
 if (Test-Path $ExePath) { Remove-Item $ExePath -Force -ErrorAction SilentlyContinue }
 
-# fetch source
 status "fetching albusx 2.0 source..." "info"
 try { Invoke-WebRequest -Uri $SrcURL -OutFile $CSPath -UseBasicParsing -ErrorAction Stop } catch {
     status "failed to fetch albusx source." "warn"
 }
 
-# compile
 if ((Test-Path $CSPath) -and (Test-Path $CSC)) {
     status "compiling albusx 2.0..." "info"
     & $CSC `
@@ -1457,7 +1445,6 @@ if ((Test-Path $CSPath) -and (Test-Path $CSC)) {
     Remove-Item $CSPath -Force -ErrorAction SilentlyContinue
 }
 
-# install service
 if (Test-Path $ExePath) {
     New-Service -Name $SvcName `
         -BinaryPathName $ExePath `
@@ -1473,7 +1460,6 @@ if (Test-Path $ExePath) {
     status "albusx compilation failed. engine not deployed." "warn"
 }
 
-# global timer resolution
 Set-Registry -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\kernel" -Name "GlobalTimerResolutionRequests" -Value 1 -Type "DWord"
 
 # ── exploit guard ─────────────────────────────────────────────────────────────
@@ -1488,8 +1474,7 @@ $AuditLen   = if ((Get-ItemProperty $KernelPath -Name "MitigationAuditOptions" -
 } else { 38 }
 [byte[]]$MitigPayload = [System.Linq.Enumerable]::Repeat([byte]34, $AuditLen)
 
-"fontdrvhost.exe","dwm.exe","lsass.exe","svchost.exe","WmiPrvSE.exe","winlogon.exe",
-"csrss.exe","audiodg.exe","services.exe","explorer.exe","taskhostw.exe","sihost.exe" | ForEach-Object {
+"fontdrvhost.exe","dwm.exe","lsass.exe","svchost.exe","WmiPrvSE.exe","winlogon.exe", "csrss.exe","audiodg.exe","services.exe","explorer.exe","taskhostw.exe","sihost.exe" | ForEach-Object {
     $P = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$_"
     Set-Registry -Path $P -Name "MitigationOptions"      -Value $MitigPayload -Type "Binary"
     Set-Registry -Path $P -Name "MitigationAuditOptions" -Value $MitigPayload -Type "Binary"
@@ -1497,7 +1482,6 @@ $AuditLen   = if ((Get-ItemProperty $KernelPath -Name "MitigationAuditOptions" -
 Set-Registry -Path $KernelPath -Name "MitigationOptions"      -Value $MitigPayload -Type "Binary"
 Set-Registry -Path $KernelPath -Name "MitigationAuditOptions" -Value $MitigPayload -Type "Binary"
 
-# intel tsx
 if ((Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue).Manufacturer -eq 'GenuineIntel') {
     Set-Registry -Path $KernelPath -Name "DisableTSX" -Value 0 -Type "DWord"
 } else {
@@ -1560,7 +1544,7 @@ try {
 
 # ── ntfs ──────────────────────────────────────────────────────────────────────
 status "optimizing ntfs..." "step"
-& fsutil behavior set disable8dot3      1 2>&1 | Out-Null
+& fsutil behavior set disable8dot3 1 2>&1 | Out-Null
 & fsutil behavior set disabledeletenotify 0 2>&1 | Out-Null
 & fsutil behavior set disablelastaccess 1 2>&1 | Out-Null
 & fsutil behavior set encryptpagingfile 0 2>&1 | Out-Null
@@ -1568,11 +1552,11 @@ status "optimizing ntfs..." "step"
 # ── bcdedit ───────────────────────────────────────────────────────────────────
 status "applying boot optimizations..." "step"
 & bcdedit /deletevalue useplatformclock 2>&1 | Out-Null
-& bcdedit /deletevalue useplatformtick  2>&1 | Out-Null
-& bcdedit /set bootmenupolicy legacy    2>&1 | Out-Null
-& bcdedit /timeout 10                  2>&1 | Out-Null
-& label C: Albus                       2>&1 | Out-Null
-& bcdedit /set "{current}" description "Albus Playbook v2" 2>&1 | Out-Null
+& bcdedit /deletevalue useplatformtick 2>&1 | Out-Null
+& bcdedit /set bootmenupolicy legacy 2>&1 | Out-Null
+& bcdedit /timeout 10 2>&1 | Out-Null
+& label C: Albus 2>&1 | Out-Null
+& bcdedit /set "{current}" description "Albus 2.0" 2>&1 | Out-Null
 
 # ── ui: true black theme ──────────────────────────────────────────────────────
 status "applying true black ui..." "step"
@@ -1590,12 +1574,11 @@ if (-not (Test-Path $BlackFile)) {
     } catch { }
 }
 
-Set-Registry "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\PersonalizationCSP" "LockScreenImagePath"   $BlackFile "String"
-Set-Registry "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\PersonalizationCSP" "LockScreenImageStatus" 1          "DWord"
+Set-Registry "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\PersonalizationCSP" "LockScreenImagePath" $BlackFile "String"
+Set-Registry "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\PersonalizationCSP" "LockScreenImageStatus" 1 "DWord"
 
 rundll32.exe user32.dll, UpdatePerUserSystemParameters
 
-# blackout account pictures
 @("$env:SystemDrive\ProgramData\Microsoft\User Account Pictures", "$env:AppData\Microsoft\Windows\AccountPictures") | ForEach-Object {
     if (Test-Path $_) {
         Get-ChildItem $_ -Include *.png,*.bmp,*.jpg -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
@@ -1613,15 +1596,11 @@ rundll32.exe user32.dll, UpdatePerUserSystemParameters
     }
 }
 
-# force tray icons visible
-Get-ChildItem 'HKCU:\Control Panel\NotifyIconSettings' -Recurse -ErrorAction SilentlyContinue |
-    ForEach-Object { Set-ItemProperty -Path $_.PSPath -Name 'IsPromoted' -Value 1 -Force -ErrorAction SilentlyContinue | Out-Null }
+Get-ChildItem 'HKCU:\Control Panel\NotifyIconSettings' -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Set-ItemProperty -Path $_.PSPath -Name 'IsPromoted' -Value 1 -Force -ErrorAction SilentlyContinue | Out-Null }
 
-# unpin taskbar
 Set-Registry "-HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Taskband" "" ""
 Remove-Item "$env:USERPROFILE\AppData\Roaming\Microsoft\Internet Explorer\Quick Launch" -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
 
-# context menu debloat
 @("-HKCR:\Folder\shell\pintohome",
   "-HKCR:\*\shell\pintohomefile",
   "-HKCR:\exefile\shellex\ContextMenuHandlers\Compatibility",
