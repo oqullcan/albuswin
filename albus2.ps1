@@ -1323,7 +1323,6 @@ if (Test-Path $SettingsDat) {
     }
 }
 
-
 # ── power plan ────────────────────────────────────────────────────────────────
 status "deploying albus power plan..." "step"
 
