@@ -1491,13 +1491,14 @@ if ((Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue).Manufacturer
 # ── MSI interrupt mode ────────────────────────────────────────────────────────
 status "enabling msi mode for pci devices..." "step"
 
+# ── MSI interrupt mode ────────────────────────────────────────────────────────
+status "enabling msi mode for pci devices..." "step"
+
 Get-PnpDevice -InstanceId "PCI\*" -ErrorAction SilentlyContinue |
     Where-Object { $_.Status -match 'OK|Unknown' } | ForEach-Object {
         $P = "HKLM:\SYSTEM\CurrentControlSet\Enum\$($_.InstanceId)\Device Parameters\Interrupt Management"
         Set-Registry -Path "$P\MessageSignaledInterruptProperties" -Name "MSISupported" -Value 1
-        if ($_.Class -eq "Display") {
-            Set-Registry -Path "$P\Affinity Policy" -Name "DevicePriority" -Value 1 -Type "DWord"
-        } elseif (Test-Path "$P\Affinity Policy") {
+        if (Test-Path "$P\Affinity Policy") {
             Remove-ItemProperty -Path "$P\Affinity Policy" -Name "DevicePriority" -ErrorAction SilentlyContinue
         }
     }
@@ -2006,12 +2007,15 @@ function show-gpu-menu {
             status "re-applying gpu msi mode..." "step"
             Start-Sleep -Seconds 2
             Get-PnpDevice -InstanceId "PCI\*" -ErrorAction SilentlyContinue |
-                Where-Object { $_.Class -eq "Display" } | ForEach-Object {
+                Where-Object { $_.Status -match 'OK|Unknown' } | ForEach-Object {
                     $P = "HKLM:\SYSTEM\CurrentControlSet\Enum\$($_.InstanceId)\Device Parameters\Interrupt Management"
                     Set-Registry -Path "$P\MessageSignaledInterruptProperties" -Name "MSISupported" -Value 1
-                    Set-Registry -Path "$P\Affinity Policy" -Name "DevicePriority" -Value 1 -Type "DWord"
-                }
+                    if (Test-Path "$P\Affinity Policy") {
+                    Remove-ItemProperty -Path "$P\Affinity Policy" -Name "DevicePriority" -ErrorAction SilentlyContinue
 
+            # mpo fix
+            Set-Registry "HKLM:\SOFTWARE\Microsoft\Windows\DWM" "OverlayTestMode" 5
+            
             status "nvidia driver installation complete." "done"
             break
         }
@@ -2204,12 +2208,13 @@ function show-gpu-menu {
             status "re-applying gpu msi mode..." "step"
             Start-Sleep -Seconds 2
             Get-PnpDevice -InstanceId "PCI\*" -ErrorAction SilentlyContinue |
-                Where-Object { $_.Class -eq "Display" } | ForEach-Object {
+                Where-Object { $_.Status -match 'OK|Unknown' } | ForEach-Object {
                     $P = "HKLM:\SYSTEM\CurrentControlSet\Enum\$($_.InstanceId)\Device Parameters\Interrupt Management"
                     Set-Registry -Path "$P\MessageSignaledInterruptProperties" -Name "MSISupported" -Value 1
-                    Set-Registry -Path "$P\Affinity Policy" -Name "DevicePriority" -Value 1 -Type "DWord"
-                }
-
+                    if (Test-Path "$P\Affinity Policy") {
+                    Remove-ItemProperty -Path "$P\Affinity Policy" -Name "DevicePriority" -ErrorAction SilentlyContinue
+        }
+    }
             status "amd driver installation complete." "done"
             break
         }
