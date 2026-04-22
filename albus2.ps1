@@ -1633,7 +1633,6 @@ $UWPKeep = '*CBS*','*AV1VideoExtension*','*AVCEncoderVideoExtension*','*HEIFImag
            '*SecHealthUI*','*VP9VideoExtensions*','*WebMediaExtensions*','*WebpImageExtension*',
            '*Windows.Photos*','*ShellExperienceHost*','*StartMenuExperienceHost*',
            '*WindowsNotepad*','*WindowsStore*','*NVIDIACorp.NVIDIAControlPanel*','*immersivecontrolpanel*'
-
 Get-AppxPackage -AllUsers | Where-Object {
     $name = $_.Name
     -not ($UWPKeep | Where-Object { $name -like $_ })
@@ -1839,8 +1838,6 @@ function show-gpu-menu {
             $Whitelist = @("Display.Driver","NVI2","EULA.txt","ListDevices.txt","setup.cfg","setup.exe")
             Get-ChildItem $ExtractPath | Where-Object { $Whitelist -notcontains $_.Name } |
                 ForEach-Object { Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue | Out-Null }
- 
-            # patch setup.cfg — remove consent/eula lines
             $CfgPath = Join-Path $ExtractPath "setup.cfg"
             if (Test-Path $CfgPath) {
                 (Get-Content $CfgPath) |
@@ -1864,12 +1861,12 @@ function show-gpu-menu {
                     Set-Registry -Path $_.PSPath -Name "RmProfilingAdminOnly"   -Value 0
                 }
  
-            Set-Registry "HKLM:\System\ControlSet001\Services\nvlddmkm\Parameters\Global\NVTweak" "NvCplPhysxAuto"       0
-            Set-Registry "HKLM:\System\ControlSet001\Services\nvlddmkm\Parameters\Global\NVTweak" "NvDevToolsVisible"    1
-            Set-Registry "HKLM:\System\ControlSet001\Services\nvlddmkm\Parameters\Global\NVTweak" "RmProfilingAdminOnly" 0
-            Set-Registry "HKCU:\Software\NVIDIA Corporation\NvTray"                               "StartOnLogin"         0
-            Set-Registry "HKLM:\SYSTEM\CurrentControlSet\Services\nvlddmkm\FTS"                   "EnableGR535"          0
-            Set-Registry "HKLM:\SYSTEM\ControlSet001\Services\nvlddmkm\Parameters\FTS"            "EnableGR535"          0
+            Set-Registry "HKLM:\System\ControlSet001\Services\nvlddmkm\Parameters\Global\NVTweak" "NvCplPhysxAuto"        0
+            Set-Registry "HKLM:\System\ControlSet001\Services\nvlddmkm\Parameters\Global\NVTweak" "NvDevToolsVisible"     1
+            Set-Registry "HKLM:\System\ControlSet001\Services\nvlddmkm\Parameters\Global\NVTweak" "RmProfilingAdminOnly"  0
+            Set-Registry "HKCU:\Software\NVIDIA Corporation\NvTray"                               "StartOnLogin"          0
+            Set-Registry "HKLM:\SYSTEM\CurrentControlSet\Services\nvlddmkm\FTS"                   "EnableGR535"           0
+            Set-Registry "HKLM:\SYSTEM\ControlSet001\Services\nvlddmkm\Parameters\FTS"            "EnableGR535"           0
             Set-Registry "HKCU:\Software\NVIDIA Corporation\NVControlPanel2\Client"               "OptInOrOutPreference"  0
  
             $DRSPath = "C:\ProgramData\NVIDIA Corporation\Drs"
@@ -2225,27 +2222,17 @@ function show-gpu-menu {
 }
  
 # ── environment cleanup ───────────────────────────────────────────────────────
-status "cleaning up environment..." "step"
- 
-@("inetpub","PerfLogs","XboxGames","Windows.old") | ForEach-Object {
-    if (Test-Path "$env:SystemDrive\$_") {
-        Remove-Item "$env:SystemDrive\$_" -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
-    }
-}
-if (Test-Path "$env:SystemDrive\DumpStack.log") { Remove-Item "$env:SystemDrive\DumpStack.log" -Force -ErrorAction SilentlyContinue | Out-Null }
- 
-Remove-Item "$env:UserProfile\AppData\Local\Temp\*" -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
-Remove-Item "$env:SystemDrive\Windows\Temp\*"       -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
- 
-# rebuild performance counters
+status "cleaning up..." "step"
+
 & "$env:SystemRoot\system32\lodctr.exe" /R 2>&1 | Out-Null
 & "$env:SystemRoot\SysWOW64\lodctr.exe" /R 2>&1 | Out-Null
- 
-# disk cleanup
-status "running disk cleanup..." "step"
+
+Remove-Item "$env:UserProfile\AppData\Local\Temp\*" -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
+Remove-Item "$env:SystemDrive\Windows\Temp\*" -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
+
 Start-Process -FilePath "cleanmgr.exe" -ArgumentList "/autoclean /d C:" -Wait -NoNewWindow
  
 Write-Host ""
-status "albus playbook v2 complete." "done"
+status "complete." "done"
 Exit
 # ============================================================================================================================
