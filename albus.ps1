@@ -1844,7 +1844,6 @@ Status "optimizing ntfs behaviors..." "step"
 & fsutil behavior set disable8dot3 1 2>&1 | Out-Null
 & fsutil behavior set disabledeletenotify 0 2>&1 | Out-Null
 & fsutil behavior set disablelastaccess 1 2>&1 | Out-Null
-& fsutil behavior set encryptpagingfile 0 2>&1 | Out-Null
 
 # bcdedit
 Status "applying bcdedit boot optimizations..." "step"
