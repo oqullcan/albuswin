@@ -152,6 +152,20 @@ if (Test-Connection -ComputerName "1.1.1.1" -Count 3 -Quiet -ErrorAction Silentl
         }
     } catch { status "failed to install 7-zip." "fail" }
 
+    # localsend
+    try {
+        $lsRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/localsend/localsend/releases/latest" -ErrorAction Stop
+        $lsVer     = $lsRelease.name
+        $lsUrl     = ($lsRelease.assets | Where-Object { $_.name -match "LocalSend-.*-windows-x86-64\.exe" }).browser_download_url
+        if ($lsUrl) {
+            status "fetching localsend ($lsVer)..." "info"
+            Invoke-WebRequest -Uri $lsUrl -OutFile "$dest\localsend.exe" -UseBasicParsing
+            status "installing localsend..." "info"
+            Start-Process -Wait "$dest\localsend.exe" -ArgumentList "/VERYSILENT /ALLUSERS /SUPPRESSMSGBOXES /NORESTART"
+            status "localsend installed." "done"
+        }
+    } catch { status "failed to install localsend." "fail" }
+
     # visual c++ runtimes
     try {
         status "fetching visual c++ x64 runtime..." "info"
@@ -1179,7 +1193,7 @@ $ServiceConfig = @(
 
 foreach ($S in $ServiceConfig) {
     if (Get-Service -Name $S.Name -ErrorAction SilentlyContinue) {
-        Stop-Service -Name $S.Name -Force -ErrorAction SilentlyContinue
+        # Stop-Service -Name $S.Name -Force -ErrorAction SilentlyContinue
         $type = switch ($S.Start) { 2 { "Automatic" } 3 { "Manual" } 4 { "Disabled" } }
         Set-Service -Name $S.Name -StartupType $type -ErrorAction SilentlyContinue
         Set-Registry -Path "HKLM:\SYSTEM\CurrentControlSet\Services\$($S.Name)" -Name "Start" -Value $S.Start -Type "DWord"
