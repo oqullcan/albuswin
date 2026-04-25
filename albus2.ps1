@@ -188,11 +188,13 @@ if (Test-Connection -ComputerName "1.1.1.1" -Count 3 -Quiet -ErrorAction Silentl
 }
 
 # ── reset capability consent storage ──────────────────────────────────────────
+
 Stop-Service -Name 'camsvc' -Force -ErrorAction SilentlyContinue
 Remove-Item -Path "$env:ProgramData\Microsoft\Windows\CapabilityAccessManager\CapabilityConsentStorage.db*" -Force -ErrorAction SilentlyContinue
 
 # ── registry tweaks ───────────────────────────────────────────────────────────
-status "executing registry optimization engine..." "step"
+
+status "executing registry optimization..." "step"
 
 if (-not (Get-PSDrive -Name HKCR -ErrorAction SilentlyContinue)) { New-PSDrive -Name HKCR -PSProvider Registry -Root HKEY_CLASSES_ROOT | Out-Null }
 if (-not (Get-PSDrive -Name HKU  -ErrorAction SilentlyContinue)) { New-PSDrive -Name HKU  -PSProvider Registry -Root HKEY_USERS        | Out-Null }
@@ -1114,21 +1116,10 @@ try {
     }
 } catch { }
 
-status "registry optimization complete." "done"
-
 # ── svchost & service optimization ───────────────────────────────────────────
 status "optimizing svchost & services..." "step"
 
 Set-Registry -Path "HKLM:\SYSTEM\CurrentControlSet\Control" -Name "SvcHostSplitThresholdInKB" -Value 0xffffffff -Type "DWord"
-
-Get-ChildItem -Path "HKLM:\SYSTEM\CurrentControlSet\Services" -ErrorAction SilentlyContinue | ForEach-Object {
-    try {
-        $img = (Get-ItemProperty -Path $_.PSPath -Name "ImagePath" -ErrorAction SilentlyContinue).ImagePath
-        if ($img -match "svchost\.exe") {
-            Set-Registry -Path $_.PSPath -Name "SvcHostSplitDisable" -Value 1 -Type "DWord"
-        }
-    } catch { }
-}
 
 $ServiceConfig = @(
     @{ Name = "DiagTrack";                                     Start = 4 }
@@ -1193,11 +1184,20 @@ $ServiceConfig = @(
 
 foreach ($S in $ServiceConfig) {
     if (Get-Service -Name $S.Name -ErrorAction SilentlyContinue) {
-        # Stop-Service -Name $S.Name -Force -ErrorAction SilentlyContinue
+        Stop-Service -Name $S.Name -Force -ErrorAction SilentlyContinue
         $type = switch ($S.Start) { 2 { "Automatic" } 3 { "Manual" } 4 { "Disabled" } }
         Set-Service -Name $S.Name -StartupType $type -ErrorAction SilentlyContinue
         Set-Registry -Path "HKLM:\SYSTEM\CurrentControlSet\Services\$($S.Name)" -Name "Start" -Value $S.Start -Type "DWord"
     }
+}
+
+Get-ChildItem -Path "HKLM:\SYSTEM\CurrentControlSet\Services" -ErrorAction SilentlyContinue | ForEach-Object {
+    try {
+        $img = (Get-ItemProperty -Path $_.PSPath -Name "ImagePath" -ErrorAction SilentlyContinue).ImagePath
+        if ($img -match "svchost\.exe") {
+            Set-Registry -Path $_.PSPath -Name "SvcHostSplitDisable" -Value 1 -Type "DWord"
+        }
+    } catch { }
 }
 
 # ── scheduled tasks ───────────────────────────────────────────────────────────
@@ -1501,9 +1501,6 @@ if ((Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue).Manufacturer
 } else {
     Remove-ItemProperty -Path $KernelPath -Name "DisableTSX" -ErrorAction SilentlyContinue
 }
-
-# ── MSI interrupt mode ────────────────────────────────────────────────────────
-status "enabling msi mode for pci devices..." "step"
 
 # ── MSI interrupt mode ────────────────────────────────────────────────────────
 status "enabling msi mode for pci devices..." "step"
