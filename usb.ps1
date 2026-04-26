@@ -1,90 +1,143 @@
 $ErrorActionPreference = 'Stop'
 Clear-Host
 
-# albus status engine
+# ─── status engine ────────────────────────────────────────────────────────────
 function status ($msg, $type = "info") {
-    $p, $c = switch ($type) {
-        "info"    { "info", "Cyan" }
-        "done"    { "done", "Green" }
-        "warn"    { "warn", "Red" }
-        "fail"    { "fail", "Red" }
-        "step"    { "step", "Magenta" }
-        "ask"     { "ask ", "Yellow" }
-        Default   { "albus", "Gray" }
+    $prefix, $color = switch ($type) {
+        "info"  { "info", "Cyan"    }
+        "done"  { "done", "Green"   }
+        "warn"  { "warn", "Yellow"  }
+        "fail"  { "fail", "Red"     }
+        "step"  { "step", "Magenta" }
+        "ask"   { "ask ", "Yellow"  }
+        default { "albus","Gray"    }
     }
-    Write-Host "$p - " -NoNewline -ForegroundColor $c
+    Write-Host "$prefix - " -NoNewline -ForegroundColor $color
     Write-Host $msg.ToLower()
 }
 
 $host.UI.RawUI.WindowTitle = "albus usb creator"
 status "initializing ventoy & albus usb automatic builder..." "step"
 
-# 1. usb selection
-$USBs = Get-Volume | Where-Object { $_.DriveType -eq 'Removable' -and $_.DriveLetter -ne $null }
-if ($USBs.Count -eq 0) { 
+# ─── 1. usb detection (wmi - robust) ─────────────────────────────────────────
+status "scanning for removable usb drives..." "info"
+
+# DriveType=2 => Removable  |  Win32_LogicalDisk is reliable across all win versions
+$WmiDisks = Get-WmiObject Win32_LogicalDisk | Where-Object { $_.DriveType -eq 2 -and $_.DeviceID -ne $null }
+
+if (-not $WmiDisks -or @($WmiDisks).Count -eq 0) {
     status "no usb drive detected. please plug in a usb and try again." "fail"
+    Write-Host ""
+    status "tip: if your drive shows in explorer but not here, try re-plugging it." "info"
+    status "tip: make sure the drive has a drive letter assigned in disk management." "info"
     Pause; Exit
 }
 
-status "scanning for available usb drives..." "info"
 Write-Host ""
-$USBs | Select-Object @{N='letter';E={$_.DriveLetter}}, @{N='label';E={$_.FileSystemLabel}}, @{N='free(gb)';E={[math]::Round($_.SizeRemaining/1GB, 2)}}, @{N='total(gb)';E={[math]::Round($_.Size/1GB, 2)}} | Format-Table -AutoSize
+
+# build display table
+$TableData = @($WmiDisks) | ForEach-Object {
+    $letter  = $_.DeviceID.Replace(":", "")
+    $label   = if ($_.VolumeName) { $_.VolumeName } else { "(no label)" }
+    $totalGB = if ($_.Size)       { [math]::Round([double]$_.Size / 1GB, 2) } else { 0 }
+    $freeGB  = if ($_.FreeSpace)  { [math]::Round([double]$_.FreeSpace / 1GB, 2) } else { 0 }
+    [PSCustomObject]@{
+        Letter     = $letter
+        Label      = $label
+        "Free(GB)" = $freeGB
+        "Total(GB)"= $totalGB
+    }
+}
+$TableData | Format-Table -AutoSize
 Write-Host ""
 
 Write-Host "ask  - " -NoNewline -ForegroundColor Yellow
-$ans = Read-Host "enter the drive letter of the usb you want to format (e.g. e)"
+$ans         = Read-Host "enter the drive letter of the usb you want to use (e.g. e)"
 $DriveLetter = $ans.Trim().Replace(":", "").ToUpper()
 
-if (-not ($USBs.DriveLetter -contains $DriveLetter)) {
-    status "invalid drive letter selected. aborting." "fail"
+$ValidLetters = @($WmiDisks) | ForEach-Object { $_.DeviceID.Replace(":", "") }
+if ($ValidLetters -notcontains $DriveLetter) {
+    status "invalid drive letter '$DriveLetter' selected. aborting." "fail"
     Pause; Exit
 }
 
 status "warning: all data on drive ${DriveLetter}:\ will be permanently erased." "warn"
 Write-Host "ask  - " -NoNewline -ForegroundColor Yellow
 $confirm = Read-Host "are you sure? type 'yes' to continue"
-if ($confirm.ToLower() -ne 'yes') { 
+if ($confirm.ToLower() -ne 'yes') {
     status "operation cancelled by user." "info"
-    Exit 
+    Exit
 }
 
-# 2. download ventoy
+# ─── 2. download ventoy ───────────────────────────────────────────────────────
 status "fetching latest ventoy release from github..." "step"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$Rel = Invoke-RestMethod "https://api.github.com/repos/ventoy/Ventoy/releases/latest" -UseBasicParsing
-$Asset = $Rel.assets | Where-Object Name -match "windows.zip$"
-$Zip = "$env:TEMP\ventoy.zip"
+
+try {
+    $Rel   = Invoke-RestMethod "https://api.github.com/repos/ventoy/Ventoy/releases/latest" -UseBasicParsing
+} catch {
+    status "failed to reach github api. check your internet connection." "fail"
+    Pause; Exit
+}
+
+$Asset = $Rel.assets | Where-Object { $_.Name -match "windows\.zip$" } | Select-Object -First 1
+if (-not $Asset) {
+    status "could not find ventoy windows release asset. aborting." "fail"
+    Pause; Exit
+}
+
+$Zip     = "$env:TEMP\ventoy.zip"
 $Extract = "$env:TEMP\ventoy_extract"
 
 status "downloading $($Asset.name)..." "info"
-Invoke-WebRequest $Asset.browser_download_url -OutFile $Zip -UseBasicParsing
-if (Test-Path $Extract) { Remove-Item $Extract -Recurse -Force }
-Expand-Archive -Path $Zip -DestinationPath $Extract -Force
-$V2D = Get-ChildItem "$Extract\*\Ventoy2Disk.exe" | Select-Object -First 1
-
-# 3. install ventoy
-status "installing ventoy to drive ${DriveLetter}:\ (this may take a few moments)..." "step"
-$ArgList = "VTOYCLI /I /Drive:${DriveLetter}"
-$Process = Start-Process -FilePath $V2D.FullName -ArgumentList $ArgList -NoNewWindow -Wait -PassThru
-
-status "waiting for ventoy volume to initialize..." "info"
-Start-Sleep -Seconds 12
-
-$VentoyVol = Get-Volume | Where-Object { $_.FileSystemLabel -match "Ventoy" } | Select-Object -First 1
-if (-not $VentoyVol) {
-    status "ventoy installation volume not found. creating config locally as fallback." "fail"
-    $BuildDir = "$PSScriptRoot\ventoy-albus-usb"
-} else {
-    $BuildDir = "$($VentoyVol.DriveLetter):\"
-    status "ventoy successfully installed. config will be applied to $($BuildDir)" "done"
+try {
+    Invoke-WebRequest $Asset.browser_download_url -OutFile $Zip -UseBasicParsing
+} catch {
+    status "download failed: $($_.Exception.Message)" "fail"
+    Pause; Exit
 }
 
-# 4. write albus config
-status "writing albus zero-touch xml configuration..." "step"
+if (Test-Path $Extract) { Remove-Item $Extract -Recurse -Force }
+Expand-Archive -Path $Zip -DestinationPath $Extract -Force
 
-if (-not (Test-Path $BuildDir)) { New-Item -Path $BuildDir -ItemType Directory -Force | Out-Null }
+$V2D = Get-ChildItem "$Extract\*\Ventoy2Disk.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $V2D) {
+    status "Ventoy2Disk.exe not found in extracted archive." "fail"
+    Pause; Exit
+}
+
+# ─── 3. install ventoy ────────────────────────────────────────────────────────
+status "installing ventoy to drive ${DriveLetter}:\ ..." "step"
+$Process = Start-Process -FilePath $V2D.FullName `
+    -ArgumentList "VTOYCLI /I /Drive:${DriveLetter}" `
+    -NoNewWindow -Wait -PassThru
+
+if ($Process.ExitCode -notin @(0, $null)) {
+    status "ventoy installer exited with code $($Process.ExitCode). it may still have succeeded." "warn"
+}
+
+status "waiting for ventoy volume to initialize..." "info"
+Start-Sleep -Seconds 15
+
+# re-scan volumes after install
+$VentoyVol = Get-WmiObject Win32_LogicalDisk |
+    Where-Object { $_.VolumeName -match "(?i)ventoy" -or $_.VolumeName -match "(?i)vtoy" } |
+    Select-Object -First 1
+
+if (-not $VentoyVol) {
+    status "ventoy volume not detected after install. writing config to local fallback folder." "warn"
+    $BuildDir = "$PSScriptRoot\ventoy-albus-usb"
+} else {
+    $BuildDir = $VentoyVol.DeviceID + "\"
+    status "ventoy volume found at $BuildDir" "done"
+}
+
+# ─── 4. write albus config ────────────────────────────────────────────────────
+status "writing albus zero-touch configuration..." "step"
+
+New-Item -Path "$BuildDir\ventoy"       -ItemType Directory -Force | Out-Null
 New-Item -Path "$BuildDir\ventoy\albus" -ItemType Directory -Force | Out-Null
-New-Item -Path "$BuildDir\ISOs" -ItemType Directory -Force | Out-Null
+New-Item -Path "$BuildDir\ISOs"         -ItemType Directory -Force | Out-Null
 
 $VentoyJson = @'
 {
@@ -104,9 +157,7 @@ $AutoUnattendXml = @'
 <unattend xmlns="urn:schemas-microsoft-com:unattend">
     <settings pass="oobeSystem">
         <component name="Microsoft-Windows-Deployment" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-            <Reseal>
-                <Mode>OOBE</Mode>
-            </Reseal>
+            <Reseal><Mode>OOBE</Mode></Reseal>
         </component>
         <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
             <OOBE>
@@ -160,9 +211,7 @@ $AutoUnattendXml = @'
             <SkipAutoActivation>true</SkipAutoActivation>
         </component>
         <component name="Microsoft-Windows-UnattendedJoin" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-            <Identification>
-                <JoinWorkgroup>WORKGROUP</JoinWorkgroup>
-            </Identification>
+            <Identification><JoinWorkgroup>WORKGROUP</JoinWorkgroup></Identification>
         </component>
         <component name="Microsoft-Windows-Deployment" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
             <RunSynchronous>
@@ -231,21 +280,19 @@ $AutoUnattendXml = @'
     <settings pass="windowsPE">
         <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
             <RunSynchronous>
-                <RunSynchronousCommand wcm:action="add"><Order>1</Order><Path>reg add "HKLM\SYSTEM\Setup\LabConfig" /v "BypassSecureBootCheck" /t REG_DWORD /d 1 /f</Path><Description>Bypass requirements for Windows 11 installation, most of them are only for boot.wim</Description></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>2</Order><Path>reg add "HKLM\SYSTEM\Setup\LabConfig" /v "BypassTPMCheck" /t REG_DWORD /d 1 /f</Path><Description>Bypass requirements for Windows 11 installation, most of them are only for boot.wim</Description></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>3</Order><Path>reg add "HKLM\SYSTEM\Setup\LabConfig" /v "BypassCPUCheck" /t REG_DWORD /d 1 /f</Path><Description>Bypass requirements for Windows 11 installation, most of them are only for boot.wim</Description></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>4</Order><Path>reg add "HKLM\SYSTEM\Setup\LabConfig" /v "BypassRAMCheck" /t REG_DWORD /d 1 /f</Path><Description>Bypass requirements for Windows 11 installation, most of them are only for boot.wim</Description></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>5</Order><Path>reg add "HKLM\SYSTEM\Setup\LabConfig" /v "BypassStorageCheck" /t REG_DWORD /d 1 /f</Path><Description>Bypass requirements for Windows 11 installation, most of them are only for boot.wim</Description></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>6</Order><Path>reg add "HKLM\SYSTEM\Setup\MoSetup" /v "AllowUpgradesWithUnsupportedTPMOrCPU" /t REG_DWORD /d 1 /f</Path><Description>Bypass requirements for Windows 11 installation, most of them are only for boot.wim</Description></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>7</Order><Path>reg add "HKCU\Control Panel\UnsupportedHardwareNotificationCache" /v "SV1" /t REG_DWORD /d 0 /f</Path><Description>Bypass requirements for Windows 11 installation, most of them are only for boot.wim</Description></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>8</Order><Path>reg add "HKCU\Control Panel\UnsupportedHardwareNotificationCache" /v "SV2" /t REG_DWORD /d 0 /f</Path><Description>Bypass requirements for Windows 11 installation, most of them are only for boot.wim</Description></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>9</Order><Path>reg add "HKU\.DEFAULT\Control Panel\UnsupportedHardwareNotificationCache" /v "SV1" /t REG_DWORD /d 0 /f</Path><Description>Bypass requirements for Windows 11 installation, most of them are only for boot.wim</Description></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>10</Order><Path>reg add "HKU\.DEFAULT\Control Panel\UnsupportedHardwareNotificationCache" /v "SV2" /t REG_DWORD /d 0 /f</Path><Description>Bypass requirements for Windows 11 installation, most of them are only for boot.wim</Description></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>11</Order><Path>reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OOBE" /v "BypassNRO" /t REG_DWORD /d 1 /f</Path><Description>Bypass requirements for Windows 11 installation, most of them are only for boot.wim</Description></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>1</Order><Path>reg add "HKLM\SYSTEM\Setup\LabConfig" /v "BypassSecureBootCheck" /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>2</Order><Path>reg add "HKLM\SYSTEM\Setup\LabConfig" /v "BypassTPMCheck" /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>3</Order><Path>reg add "HKLM\SYSTEM\Setup\LabConfig" /v "BypassCPUCheck" /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>4</Order><Path>reg add "HKLM\SYSTEM\Setup\LabConfig" /v "BypassRAMCheck" /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>5</Order><Path>reg add "HKLM\SYSTEM\Setup\LabConfig" /v "BypassStorageCheck" /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>6</Order><Path>reg add "HKLM\SYSTEM\Setup\MoSetup" /v "AllowUpgradesWithUnsupportedTPMOrCPU" /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>7</Order><Path>reg add "HKCU\Control Panel\UnsupportedHardwareNotificationCache" /v "SV1" /t REG_DWORD /d 0 /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>8</Order><Path>reg add "HKCU\Control Panel\UnsupportedHardwareNotificationCache" /v "SV2" /t REG_DWORD /d 0 /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>9</Order><Path>reg add "HKU\.DEFAULT\Control Panel\UnsupportedHardwareNotificationCache" /v "SV1" /t REG_DWORD /d 0 /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>10</Order><Path>reg add "HKU\.DEFAULT\Control Panel\UnsupportedHardwareNotificationCache" /v "SV2" /t REG_DWORD /d 0 /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>11</Order><Path>reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OOBE" /v "BypassNRO" /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>
             </RunSynchronous>
-            <Diagnostics>
-                <OptIn>false</OptIn>
-            </Diagnostics>
+            <Diagnostics><OptIn>false</OptIn></Diagnostics>
             <DynamicUpdate>
                 <Enable>false</Enable>
                 <WillShowUI>Never</WillShowUI>
@@ -263,19 +310,29 @@ $AutoUnattendXml = @'
 '@
 $AutoUnattendXml | Set-Content -Path "$BuildDir\ventoy\albus\autounattend.xml" -Encoding UTF8
 
+# ─── 5. finish ────────────────────────────────────────────────────────────────
+Write-Host ""
 status "operation completed successfully." "done"
 status "ventoy & albus usb is ready for deployment." "done"
+
 if ($VentoyVol) {
-    status "please place your windows .iso files into $($BuildDir)isos" "info"
+    status "place your windows .iso files into: ${BuildDir}ISOs" "info"
 } else {
-    status "config was placed in $BuildDir. move folders to your ventoy root." "info"
+    status "config saved to: $BuildDir  ->  move folders to your ventoy root manually." "info"
 }
 
+# ─── 6. cleanup ───────────────────────────────────────────────────────────────
 Write-Host ""
 status "cleaning up temporary files..." "info"
-if (Test-Path $Zip) { Remove-Item -Path $Zip -Force -ErrorAction SilentlyContinue }
-if (Test-Path $Extract) { Remove-Item -Path $Extract -Recurse -Force -ErrorAction SilentlyContinue }
-if ($VentoyVol -and (Test-Path "$PSScriptRoot\Ventoy-Albus-USB")) { Remove-Item -Path "$PSScriptRoot\Ventoy-Albus-USB" -Recurse -Force -ErrorAction SilentlyContinue }
+@($Zip, $Extract) | ForEach-Object {
+    if (Test-Path $_) { Remove-Item $_ -Recurse -Force -ErrorAction SilentlyContinue }
+}
+$LocalFallback = "$PSScriptRoot\ventoy-albus-usb"
+if (-not $VentoyVol -and (Test-Path $LocalFallback)) {
+    # keep it - user needs to move it manually
+} elseif (Test-Path $LocalFallback) {
+    Remove-Item $LocalFallback -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 Write-Host ""
 status "exiting in 10 seconds..." "info"
