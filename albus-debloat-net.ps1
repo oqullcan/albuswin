@@ -1,5 +1,7 @@
 #Requires -RunAsAdministrator
 
+Add-Type -AssemblyName System.ServiceProcess
+
 # configuration - exclusion lists
 [string[]]$UwpAppExclusions = @(
     '*CBS*', '*Microsoft.AV1VideoExtension*', '*Microsoft.AVCEncoderVideoExtension*',
