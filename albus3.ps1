@@ -134,10 +134,10 @@ function Resolve-RegistryPath {
         -replace '^HKCR:', 'Registry::HKEY_CLASSES_ROOT' `
         -replace '^HKU:',  'Registry::HKEY_USERS'
     $regPath = $clean `
-        -replace '^HKLM:', 'HKEY_LOCAL_MACHINE' `
-        -replace '^HKCU:', $HKCU_ROOT `
-        -replace '^HKCR:', 'HKEY_CLASSES_ROOT' `
-        -replace '^HKU:',  'HKEY_USERS'
+        -replace '^HKLM:', 'LocalMachine' `
+        -replace '^HKCU:', ($HKCU_ROOT -replace 'HKEY_CURRENT_USER', 'CurrentUser' -replace 'HKEY_USERS', 'Users') `
+        -replace '^HKCR:', 'ClassesRoot' `
+        -replace '^HKU:',  'Users'
     return $psPath, $regPath
 }
 
@@ -1593,6 +1593,7 @@ foreach ($svc in $config) {
 }
 
 # merge svchost instances for all matching services
+Write-Step "disabling svchost splitting" "ok"
 Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\*' -Name 'ImagePath' -ErrorAction SilentlyContinue |
     Where-Object { $_.ImagePath -match 'svchost\.exe' } |
     ForEach-Object {
@@ -1609,6 +1610,7 @@ Write-Done 'services'
 Write-Phase 'scheduled tasks'
 
 $paths = @(
+    Write-Step
     '\Microsoft\Windows\Application Experience\',
     '\Microsoft\Windows\AppxDeploymentClient\',
     '\Microsoft\Windows\Autochk\',
@@ -1630,6 +1632,7 @@ $paths = @(
 )
 
 foreach ($path in $paths) {
+    Write-Step "disabling scheduled tasks in $path"
     Get-ScheduledTask -TaskPath $path -ErrorAction SilentlyContinue |
     Where-Object { $_.State -ne 'Disabled' } |
     Disable-ScheduledTask -ErrorAction SilentlyContinue | Out-Null
@@ -1736,6 +1739,13 @@ powercfg /changename $AlbusGUID 'Albus' 'minimal latency, unparked cores, peak t
     }
 }
 
+$PowerSettingsPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Power\PowerSettings"
+Get-ChildItem $PowerSettingsPath -Recurse | ForEach-Object {
+    if ($_.Property -contains "Attributes") {
+        Set-ItemProperty -Path $_.PSPath -Name "Attributes" -Value 0 -ErrorAction SilentlyContinue
+    }
+}
+
 # albus plan config
 # format: "subgroupguid - settingguid - value"
 @(
@@ -1767,18 +1777,10 @@ powercfg /changename $AlbusGUID 'Albus' 'minimal latency, unparked cores, peak t
     '54533251-82be-4824-96c1-47b60b740d00 893dee8e-2bef-41e0-89c6-b55d0929964c 100'  # min cpu state
     '54533251-82be-4824-96c1-47b60b740d00 bc5038f7-23e0-4960-96da-33abaf5935ec 100'  # max cpu state
     '54533251-82be-4824-96c1-47b60b740d00 0cc5b647-c1df-4637-891a-dec35c318583 100'  # core parking min cores
-    '54533251-82be-4824-96c1-47b60b740d00 0cc5b647-c1df-4637-891a-dec35c318584 100'  # core parking min cores '2
     '54533251-82be-4824-96c1-47b60b740d00 ea062031-0e34-4ff1-9b6d-eb1059334028 100'  # core parking max cores
     '54533251-82be-4824-96c1-47b60b740d00 94d3a615-a899-4ac5-ae2b-e4d8f634367f 1'    # system cooling active
     '54533251-82be-4824-96c1-47b60b740d00 36687f9e-e3a5-4dbf-b1dc-15eb381c6863 0'    # energy perf pref
     '54533251-82be-4824-96c1-47b60b740d00 93b8b6dc-0698-4d1c-9ee4-0644e900c85d 0'    # heterogeneous scheduling
-    # test
-    '54533251-82be-4824-96c1-47b60b740d00 465e1f50-b610-473a-ab58-00d1077dc418 2'    # turbo boost power limit tuning
-    '54533251-82be-4824-96c1-47b60b740d00 40fbefc7-2e9d-4d25-a185-0cfd8574bac6 1'    # perf policy for turbo boost
-    '54533251-82be-4824-96c1-47b60b740d00 06cadf0e-64ed-448a-8927-ce7bf90eb35d 10'   # turbo power boost
-    '54533251-82be-4824-96c1-47b60b740d00 12a0ab44-fe28-4fa9-b3bd-4b64f44960a6 8'    # turbo power boost
-    '54533251-82be-4824-96c1-47b60b740d00 7b224883-b3cc-4d79-819f-8374152cbe7c 100'  # disable c6 states
-    '54533251-82be-4824-96c1-47b60b740d00 4b92d758-5a24-4851-a470-815d78aee119 80'   # disable c6 states
 
     # display & video playback
     '7516b95f-f776-4464-8c53-06167f40cc99 3c0bc021-c8a8-4e07-a973-6b14cbcb2b7e 600'  # display timeout 10m (oled safety)
@@ -1805,10 +1807,13 @@ powercfg /changename $AlbusGUID 'Albus' 'minimal latency, unparked cores, peak t
     'de830923-a562-41af-a086-e3a2c6bad2da 13d09884-f74e-474a-a852-b6bde8ad03a8 100'  # low screen brightness battery saver disabled
     'de830923-a562-41af-a086-e3a2c6bad2da e69653ca-cf7f-4f05-aa73-cb833fa90ad4 0'    # battery saver auto never
 ) | ForEach-Object {
-    $parts = $_ -split '\s+'
-    powercfg /attributes $parts[0] $parts[1] -ATTRIB_HIDE 2>$NULL | Out-Null
-    powercfg /setacvalueindex $AlbusGUID $parts[0] $parts[1] $parts[2] 2>$NULL | Out-Null
-    powercfg /setdcvalueindex $AlbusGUID $parts[0] $parts[1] $parts[2] 2>$NULL | Out-Null
+    $line = $_.Trim()
+    if (-not $line -or $line.StartsWith('#')) { return }
+    $parts = $line -split '\s+'
+    if ($parts.Count -lt 3) { return }
+    powercfg /attributes $parts[0] $parts[1] -ATTRIB_HIDE *>$NULL
+    powercfg /setacvalueindex $AlbusGUID $parts[0] $parts[1] $parts[2] *>$NULL
+    powercfg /setdcvalueindex $AlbusGUID $parts[0] $parts[1] $parts[2] *>$NULL
 }
 
 # activate the albus plan
