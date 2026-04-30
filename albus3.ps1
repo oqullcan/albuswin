@@ -278,11 +278,7 @@ Write-Done 'system preparation'
 
 # ════════════════════════════════════════════════════════════
 #  PHASE 2 · SOFTWARE INSTALLATION
-#  network-dependent. Runs early so downloads happen while
-#  later phases execute (sequential here, could be parallelized
-#  in a future version with powershell jobs).
-# ════════════════════════════════════════════════════════════
-<#
+
 Write-Phase 'software installation'
 
 if (Test-Network) {
@@ -1511,7 +1507,130 @@ Apply-Tweaks @(
 
 Write-Step 'registry tweaks complete' 'ok'
 Write-Done 'registry tweaks'
-#>
+
+# ════════════════════════════════════════════════════════════
+#  PHASE 13 · UI: TRUE BLACK WALLPAPER & SHELL REFRESH
+# ════════════════════════════════════════════════════════════
+
+Write-Phase 'ui'
+
+# black wallpaper & lock screen
+Write-Step 'generating true black wallpaper'
+Add-Type -AssemblyName System.Windows.Forms, System.Drawing -ErrorAction SilentlyContinue
+$BlackFile = "$env:SystemRoot\Albus.jpg"
+if (-not (Test-Path $BlackFile)) {
+    try {
+        $sw  = [System.Windows.Forms.SystemInformation]::PrimaryMonitorSize.Width
+        $sh  = [System.Windows.Forms.SystemInformation]::PrimaryMonitorSize.Height
+        $bmp = New-Object System.Drawing.Bitmap $sw, $sh
+        $g   = [System.Drawing.Graphics]::FromImage($bmp)
+        $g.FillRectangle([System.Drawing.Brushes]::Black, 0, 0, $sw, $sh)
+        $g.Dispose(); $bmp.Save($BlackFile); $bmp.Dispose()
+    } catch { Write-Step 'wallpaper generation failed' 'warn' }
+}
+
+Write-Step 'applying true black theme'
+Apply-Tweaks @(
+    @{ Path = 'HKCU:\Control Panel\Colors';                                          Name = 'Background';               Value = '0 0 0';    Type = 'String' }
+    @{ Path = 'HKCU:\Control Panel\Desktop';                                         Name = 'WallPaper';                Value = '';         Type = 'String' }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Wallpapers'; Name = 'BackgroundType';           Value = 1 }
+    @{ Path = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize';  Name = 'AppsUseLightTheme';        Value = 0 }
+    @{ Path = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize';  Name = 'SystemUsesLightTheme';     Value = 0 }
+    @{ Path = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize';  Name = 'EnableTransparency';       Value = 0 }
+    @{ Path = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize';  Name = 'ColorPrevalence';          Value = 1 }
+    @{ Path = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Accent';     Name = 'AccentColorMenu';          Value = 0 }
+    @{ Path = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Accent';     Name = 'StartColorMenu';           Value = 0 }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\DWM';                                Name = 'AccentColor';              Value = -15132391 }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\DWM';                                Name = 'ColorizationAfterglow';    Value = -1004988135 }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\DWM';                                Name = 'ColorizationColor';        Value = -1004988135 }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\DWM';                                Name = 'EnableWindowColorization'; Value = 1 }
+    @{ Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\PersonalizationCSP';  Name = 'LockScreenImagePath';      Value = $BlackFile; Type = 'String' }
+    @{ Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\PersonalizationCSP';  Name = 'LockScreenImageStatus';    Value = 1 }
+)
+Set-Reg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Accent' 'AccentPalette' ([byte[]](
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00
+)) 'Binary'
+
+# blackout account pictures
+Write-Step 'blacking out account pictures'
+@(
+    "$env:ProgramData\Microsoft\User Account Pictures"
+    "$env:AppData\Microsoft\Windows\AccountPictures"
+) | ForEach-Object {
+    if (-not (Test-Path $_)) { return }
+    Get-ChildItem $_ -Include *.png,*.bmp,*.jpg -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+        try {
+            $img = [System.Drawing.Bitmap]::FromFile($_.FullName)
+            $w = $img.Width; $h = $img.Height; $img.Dispose()
+            $new = New-Object System.Drawing.Bitmap $w, $h
+            $g   = [System.Drawing.Graphics]::FromImage($new)
+            $g.Clear([System.Drawing.Color]::Black); $g.Dispose()
+            $fmt = switch ($_.Extension.ToLower()) {
+                '.png' { [System.Drawing.Imaging.ImageFormat]::Png }
+                '.bmp' { [System.Drawing.Imaging.ImageFormat]::Bmp }
+                default { [System.Drawing.Imaging.ImageFormat]::Jpeg }
+            }
+            $new.Save($_.FullName, $fmt); $new.Dispose()
+        } catch {}
+    }
+}
+
+# context menu cleanup
+Write-Step 'cleaning context menu'
+@(
+    '-HKCR:\Folder\shell\pintohome'
+    '-HKCR:\*\shell\pintohomefile'
+    '-HKCR:\exefile\shellex\ContextMenuHandlers\Compatibility'
+    '-HKCR:\Folder\ShellEx\ContextMenuHandlers\Library Location'
+    '-HKCR:\AllFilesystemObjects\shellex\ContextMenuHandlers\ModernSharing'
+    '-HKCR:\AllFilesystemObjects\shellex\ContextMenuHandlers\SendTo'
+    '-HKCR:\UserLibraryFolder\shellex\ContextMenuHandlers\SendTo'
+) | ForEach-Object { Set-Reg -Path $_ -Name '' -Value '' }
+
+Apply-Tweaks @(
+    @{ Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer';        Name = 'NoCustomizeThisFolder';                Value = 1 }
+    @{ Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer';                 Name = 'NoPreviousVersionsPage';               Value = 1 }
+    @{ Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Blocked'; Name = '{9F156763-7844-4DC4-B2B1-901F640F5155}'; Value = ''; Type = 'String' }
+    @{ Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Blocked'; Name = '{09A47860-11B0-4DA5-AFA5-26D86198A780}'; Value = ''; Type = 'String' }
+    @{ Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Blocked'; Name = '{f81e9010-6ea4-11ce-a7ff-00aa003ca9f6}'; Value = ''; Type = 'String' }
+)
+
+# start menu — windows 11 only
+Write-Step 'configuring start menu'
+$start2 = "$env:LOCALAPPDATA\Packages\Microsoft.Windows.StartMenuExperienceHost_cw5n1h2txyewy\LocalState\start2.bin"
+Remove-Item $start2 -Force -ErrorAction SilentlyContinue
+[System.IO.File]::WriteAllBytes($start2, [Convert]::FromBase64String("AgAAABAAAAD9////AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="))
+Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Start' 'AllAppsViewMode' 2
+
+# taskbar unpin
+Write-Step 'unpinning taskbar items'
+Set-Reg '-HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Taskband' '' ''
+Remove-Item "$env:APPDATA\Microsoft\Internet Explorer\Quick Launch" -Recurse -Force -ErrorAction SilentlyContinue
+
+# tray icons — promote all
+Write-Step 'promoting all tray icons'
+Get-ChildItem 'HKCU:\Control Panel\NotifyIconSettings' -Recurse -ErrorAction SilentlyContinue |
+    ForEach-Object { Set-ItemProperty -Path $_.PSPath -Name 'IsPromoted' -Value 1 -Force -ErrorAction SilentlyContinue }
+
+# accessibility folders — hide
+Write-Step 'hiding accessibility folders'
+@(
+    "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Accessibility"
+    "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Accessibility"
+    "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Accessories"
+) | ForEach-Object {
+    if (Test-Path $_) { attrib +h "$_" /s /d *>$null }
+}
+
+# shell refresh
+Write-Step 'refreshing shell'
+rundll32.exe user32.dll, UpdatePerUserSystemParameters
+Stop-Process -Force -Name explorer -ErrorAction SilentlyContinue
+
+Write-Step 'ui applied' 'ok'
+Write-Done 'ui'
+
 # ════════════════════════════════════════════════════════════
 #  PHASE 4 · SERVICES
 # ════════════════════════════════════════════════════════════
@@ -1525,6 +1644,10 @@ if ($lf -contains 'rdyboost') {
     $lf = $lf | Where-Object { $_ -ne 'rdyboost' }
     Set-ItemProperty -Path $lfPath -Name 'LowerFilters' -Value $lf
 }
+
+# ── svchost split threshold (disable split host) ──────────────
+Write-Step 'svchost split threshold (disable split host)'
+Set-Reg -Path 'HKLM:\SYSTEM\CurrentControlSet\Control' -Name 'SvcHostSplitThresholdInKB' -Value 0xffffffff -Type DWord -Force
 
 $config = @(
     # telemetry & diagnostics
@@ -1958,6 +2081,16 @@ Get-PnpDevice -ErrorAction SilentlyContinue |
             }
     }
 
+# dma remapping & kernel guard
+Write-Step 'optimizing dma remapping & kernel guard policy'
+Set-Reg 'HKLM:\SOFTWARE\Microsoft\PolicyManager\default\DmaGuard\DeviceEnumerationPolicy' 'value' 2
+Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Services' -ErrorAction SilentlyContinue | ForEach-Object {
+    $p = "$($_.Name.Replace('HKEY_LOCAL_MACHINE', 'HKLM:'))\Parameters"
+    if ((Get-ItemProperty $p -Name 'DmaRemappingCompatible' -ErrorAction SilentlyContinue) -ne $null) {
+        Set-Reg $p 'DmaRemappingCompatible' 0
+    }
+}
+
 # 8.5  exploit guard — disable system-wide mitigations for peak performance
 Write-Step 'disabling exploit guard & mitigations'
 $Mitigations = (Get-Command 'Set-ProcessMitigation' -ErrorAction SilentlyContinue).Parameters['Disable'].Attributes.ValidValues
@@ -1983,23 +2116,19 @@ foreach ($proc in $CriticalProcs) {
 Set-Reg $KernelPath 'MitigationOptions' $mitigPayload 'Binary'
 Set-Reg $KernelPath 'MitigationAuditOptions' $mitigPayload 'Binary'
 
-# meltdown & spectre
-Set-Reg -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management' -Name 'FeatureSettings' -Value 1
-$cur = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management' -EA 0).FeatureSettingsOverride
-if ($null -eq $cur) { $cur = 0 }
-Set-Reg -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management' -Name 'FeatureSettingsOverride'     -Value $new
-Set-Reg -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management' -Name 'FeatureSettingsOverrideMask' -Value $new
+$MemMgmt = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management'
 
-# downfall
-Set-Reg -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management' -Name 'FeatureSettings' -Value 1
-$cur = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management' -EA 0).FeatureSettingsOverride
-if ($null -eq $cur) { $cur = 0 }
-Set-Reg -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management' -Name 'FeatureSettingsOverride'     -Value $new
-Set-Reg -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management' -Name 'FeatureSettingsOverrideMask' -Value $new
+# meltdown & spectre (cve-2017-5754, cve-2017-5715)
+Write-Step 'disabling meltdown & spectre mitigations'
+Set-Reg -Path $MemMgmt -Name 'FeatureSettings'             -Value 1
+Set-Reg -Path $MemMgmt -Name 'FeatureSettingsOverride'     -Value 3
+Set-Reg -Path $MemMgmt -Name 'FeatureSettingsOverrideMask' -Value 3
 
 # intel tsx (transaction synchronization extensions)
+# downfall
 if ((Get-CimInstance Win32_Processor -EA 0).Manufacturer -match 'Intel') {
     Set-Reg $KernelPath 'DisableTSX' 0
+    Set-Reg $KernelPath 'DisableGatherDataSampling' 1
 } else {
     Remove-ItemProperty -Path $KernelPath -Name 'DisableTSX' -EA 0
 }
@@ -2023,7 +2152,7 @@ bcdedit /timeout 10 | Out-Null
 bcdedit /deletevalue useplatformclock | Out-Null
 bcdedit /deletevalue useplatformtick | Out-Null
 bcdedit /set bootmenupolicy legacy | Out-Null
-bcdedit /set '{current}' description 'Albus 5.0' | Out-Null
+bcdedit /set '{current}' description 'Albus 6.2' | Out-Null
 label C: Albus | Out-Null
 
 Write-Step 'disable memory compression'
@@ -2089,6 +2218,9 @@ if (Test-Path $ExePath) {
     Write-Step 'albusx not deployed (compilation unavailable)' 'warn'
 }
 
+Write-Step 'enforcing global kernel timer resolution requests'
+Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\kernel' 'GlobalTimerResolutionRequests' 1
+
 Write-Done 'albusx service'
 
 # ════════════════════════════════════════════════════════════
@@ -2099,8 +2231,139 @@ Write-Done 'albusx service'
 
 Write-Phase 'debloat'
 
-Write-Step 'debloat complete' 'ok'
-Write-Done 'debloat'
+# uwp removal
+Write-Step 'removing uwp bloat'
+Get-AppxPackage -AllUsers -ErrorAction SilentlyContinue | Where-Object {
+    $_.Name -notlike '*CBS*'                                       -and
+    $_.Name -notlike '*Microsoft.AV1VideoExtension*'               -and
+    $_.Name -notlike '*Microsoft.AVCEncoderVideoExtension*'        -and
+    $_.Name -notlike '*Microsoft.HEIFImageExtension*'              -and
+    $_.Name -notlike '*Microsoft.HEVCVideoExtension*'              -and
+    $_.Name -notlike '*Microsoft.MPEG2VideoExtension*'             -and
+    $_.Name -notlike '*Microsoft.Paint*'                           -and
+    $_.Name -notlike '*Microsoft.RawImageExtension*'               -and
+    $_.Name -notlike '*Microsoft.SecHealthUI*'                     -and
+    $_.Name -notlike '*Microsoft.VP9VideoExtensions*'              -and
+    $_.Name -notlike '*Microsoft.WebMediaExtensions*'              -and
+    $_.Name -notlike '*Microsoft.WebpImageExtension*'              -and
+    $_.Name -notlike '*Microsoft.Windows.Photos*'                  -and
+    $_.Name -notlike '*Microsoft.Windows.ShellExperienceHost*'     -and
+    $_.Name -notlike '*Microsoft.Windows.StartMenuExperienceHost*' -and
+    $_.Name -notlike '*Microsoft.WindowsNotepad*'                  -and
+    $_.Name -notlike '*Microsoft.WindowsStore*'                    -and
+    $_.Name -notlike '*Microsoft.ImmersiveControlPanel*'
+} | ForEach-Object {
+    try { Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue | Out-Null } catch {}
+}
+
+# windows capabilities
+Write-Step 'removing windows capabilities'
+try {
+    Get-WindowsCapability -Online -ErrorAction Stop | Where-Object {
+        $_.State -eq 'Installed'             -and
+        $_.Name -notlike '*Ethernet*'        -and
+        $_.Name -notlike '*MSPaint*'         -and
+        $_.Name -notlike '*Notepad*'         -and
+        $_.Name -notlike '*Wifi*'            -and
+        $_.Name -notlike '*NetFX3*'          -and
+        $_.Name -notlike '*VBSCRIPT*'        -and
+        $_.Name -notlike '*WMIC*'            -and
+        $_.Name -notlike '*ShellComponents*'
+    } | ForEach-Object {
+        try { Remove-WindowsCapability -Online -Name $_.Name -ErrorAction SilentlyContinue | Out-Null } catch {}
+    }
+} catch {}
+
+# optional features
+Write-Step 'disabling optional features'
+try {
+    Get-WindowsOptionalFeature -Online -ErrorAction Stop | Where-Object {
+        $_.State -eq 'Enabled'                          -and
+        $_.FeatureName -notlike '*DirectPlay*'          -and
+        $_.FeatureName -notlike '*LegacyComponents*'    -and
+        $_.FeatureName -notlike '*NetFx*'               -and
+        $_.FeatureName -notlike '*SearchEngine-Client*' -and
+        $_.FeatureName -notlike '*Server-Shell*'        -and
+        $_.FeatureName -notlike '*Windows-Defender*'    -and
+        $_.FeatureName -notlike '*Drivers-General*'     -and
+        $_.FeatureName -notlike '*Server-Gui-Mgmt*'     -and
+        $_.FeatureName -notlike '*WirelessNetworking*'
+    } | ForEach-Object {
+        try { Disable-WindowsOptionalFeature -Online -FeatureName $_.FeatureName -NoRestart -WarningAction SilentlyContinue -ErrorAction SilentlyContinue | Out-Null } catch {}
+    }
+} catch {}
+
+# edge
+Write-Step 'removing microsoft edge'
+$OldRegion = Get-ItemPropertyValue 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Control Panel\DeviceRegion' -Name DeviceRegion -ErrorAction SilentlyContinue
+Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Control Panel\DeviceRegion' -Name DeviceRegion -Value 244 -Force -ErrorAction SilentlyContinue
+
+@('backgroundTaskHost','Copilot','CrossDeviceResume','GameBar','MicrosoftEdgeUpdate',
+  'msedge','msedgewebview2','OneDrive','OneDrive.Sync.Service','OneDriveStandaloneUpdater',
+  'Resume','RuntimeBroker','Search','SearchHost','Setup','StoreDesktopExtension',
+  'WidgetService','Widgets') | ForEach-Object { Stop-Process -Name $_ -Force -ErrorAction SilentlyContinue }
+Get-Process | Where-Object { $_.ProcessName -like '*edge*' } | Stop-Process -Force -ErrorAction SilentlyContinue
+
+@('HKCU:\SOFTWARE','HKLM:\SOFTWARE','HKCU:\SOFTWARE\Policies','HKLM:\SOFTWARE\Policies',
+  'HKCU:\SOFTWARE\WOW6432Node','HKLM:\SOFTWARE\WOW6432Node',
+  'HKCU:\SOFTWARE\WOW6432Node\Policies','HKLM:\SOFTWARE\WOW6432Node\Policies') | ForEach-Object {
+    Remove-Item "$_\Microsoft\EdgeUpdate" -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+@('LocalApplicationData','ProgramFilesX86','ProgramFiles') | ForEach-Object {
+    $root = [Environment]::GetFolderPath($_)
+    Get-ChildItem "$root\Microsoft\EdgeUpdate\*.*.*.*\MicrosoftEdgeUpdate.exe" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+        Start-Process -Wait $_.FullName -ArgumentList '/unregsvc' -WindowStyle Hidden
+        Start-Process -Wait $_.FullName -ArgumentList '/uninstall' -WindowStyle Hidden
+    }
+}
+
+try {
+    $edgeKey = Get-Item 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft Edge' -ErrorAction SilentlyContinue
+    if ($edgeKey) {
+        $uString = $edgeKey.GetValue('UninstallString') + ' --force-uninstall'
+        Start-Process cmd.exe -ArgumentList "/c $uString" -WindowStyle Hidden -Wait
+    }
+} catch {}
+
+@(
+    "$env:SystemRoot\SystemApps\Microsoft.MicrosoftEdge_8wekyb3d8bbwe"
+    "$env:ProgramFiles (x86)\Microsoft"
+    "$env:SystemDrive\Windows\System32\config\systemprofile\AppData\Roaming\Microsoft\Internet Explorer\Quick Launch\Microsoft Edge.lnk"
+) | ForEach-Object { if (Test-Path $_) { Remove-Item $_ -Recurse -Force -ErrorAction SilentlyContinue } }
+
+Get-Service -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'Edge' } | ForEach-Object {
+    sc.exe stop $_.Name *>$null
+    sc.exe delete $_.Name *>$null
+}
+
+if ($OldRegion) {
+    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Control Panel\DeviceRegion' -Name DeviceRegion -Value $OldRegion -Force -ErrorAction SilentlyContinue
+}
+
+# onedrive
+Write-Step 'removing onedrive'
+Stop-Process -Force -Name OneDrive -ErrorAction SilentlyContinue
+@("$env:SystemRoot\System32\OneDriveSetup.exe", "$env:SystemRoot\SysWOW64\OneDriveSetup.exe") | ForEach-Object {
+    if (Test-Path $_) { Start-Process -Wait $_ -ArgumentList '/uninstall' -WindowStyle Hidden }
+}
+Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -match 'OneDrive' } | Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue
+
+# update health tools
+Write-Step 'removing update health tools'
+Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
+    Where-Object { $_.DisplayName -match 'Update for x64-based Windows Systems|Microsoft Update Health Tools' } |
+    ForEach-Object {
+        if ($_.PSChildName) { Start-Process 'msiexec.exe' -ArgumentList "/x $($_.PSChildName) /qn /norestart" -Wait -NoNewWindow }
+    }
+sc.exe delete 'uhssvc' *>$null
+Unregister-ScheduledTask -TaskName PLUGScheduler -Confirm:$false -ErrorAction SilentlyContinue
+
+# gameinput
+Write-Step 'removing microsoft gameinput'
+Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
+    Where-Object { $_.DisplayName -like '*Microsoft GameInput*' } |
+    ForEach-Object { Start-Process 'msiexec.exe' -ArgumentList "/x $($_.PSChildName) /qn /norestart" -Wait -NoNewWindow }
 
 # ════════════════════════════════════════════════════════════
 #  PHASE 12 · STARTUP & TASK CLEANUP
@@ -2131,54 +2394,6 @@ Write-Phase 'startup cleanup'
 
 Write-Step 'startup entries cleared' 'ok'
 Write-Done 'startup cleanup'
-
-# ════════════════════════════════════════════════════════════
-#  PHASE 13 · UI: TRUE BLACK WALLPAPER & SHELL REFRESH
-# ════════════════════════════════════════════════════════════
-
-Write-Phase 'ui'
-
-Add-Type -AssemblyName System.Windows.Forms, System.Drawing -ErrorAction SilentlyContinue
-
-$BlackFile = "$env:SystemRoot\Albus.jpg"
-if (-not (Test-Path $BlackFile)) {
-    try {
-        $sw  = [System.Windows.Forms.SystemInformation]::PrimaryMonitorSize.Width
-        $sh  = [System.Windows.Forms.SystemInformation]::PrimaryMonitorSize.Height
-        $bmp = New-Object System.Drawing.Bitmap $sw, $sh
-        $g   = [System.Drawing.Graphics]::FromImage($bmp)
-        $g.FillRectangle([System.Drawing.Brushes]::Black, 0, 0, $sw, $sh)
-        $g.Dispose(); $bmp.Save($BlackFile); $bmp.Dispose()
-    } catch { Write-Step 'wallpaper generation failed' 'warn' }
-}
-
-Set-Reg 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\PersonalizationCSP' 'LockScreenImagePath'   $BlackFile 'String'
-Set-Reg 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\PersonalizationCSP' 'LockScreenImageStatus' 1
-
-# context menu cleanup
-@('-HKCR:\Folder\shell\pintohome',
-  '-HKCR:\*\shell\pintohomefile',
-  '-HKCR:\exefile\shellex\ContextMenuHandlers\Compatibility',
-  '-HKCR:\AllFilesystemObjects\shellex\ContextMenuHandlers\ModernSharing',
-  '-HKCR:\AllFilesystemObjects\shellex\ContextMenuHandlers\SendTo') | ForEach-Object {
-    Set-Reg -Path $_ -Name '' -Value ''
-}
-
-# block shell extensions
-@('{9F156763-7844-4DC4-B2B1-901F640F5155}', '{09A47860-11B0-4DA5-AFA5-26D86198A780}', '{f81e9010-6ea4-11ce-a7ff-00aa003ca9f6}') | ForEach-Object {
-    Set-Reg 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Blocked' $_ '' 'String'
-}
-
-# notify icons - promote all
-Get-ChildItem 'HKCU:\Control Panel\NotifyIconSettings' -Recurse -ErrorAction SilentlyContinue |
-    ForEach-Object { Set-ItemProperty -Path $_.PSPath -Name 'IsPromoted' -Value 1 -Force -ErrorAction SilentlyContinue }
-
-# refresh shell
-rundll32.exe user32.dll, UpdatePerUserSystemParameters
-Stop-Process -Force -Name explorer -ErrorAction SilentlyContinue
-
-Write-Step 'ui applied' 'ok'
-Write-Done 'ui'
 
 # ════════════════════════════════════════════════════════════
 #  PHASE 15 · CLEANUP
