@@ -620,6 +620,133 @@ switch -regex ($selection) {
 
 Write-Phase 'registry tweaks'
 
+# ── 3.1  accessibility (full disable & purge) ───────────────
+Write-Step 'accessibility'
+Apply-Tweaks @(
+    # Classic Context Menu & Visual Fixes
+    @{ Path = 'HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32'; Name = ''; Value = ''; Type = 'String' }
+    @{ Path = 'HKCU:\Control Panel\Desktop'; Name = 'JPEGImportQuality'; Value = 100 }
+    @{ Path = 'HKU:\.DEFAULT\Control Panel\Desktop'; Name = 'JPEGImportQuality'; Value = 100 }
+    @{ Path = 'HKCU:\Control Panel\Sound'; Name = 'Beep'; Value = 'no'; Type = 'String' }
+    @{ Path = 'HKU:\.DEFAULT\Control Panel\Sound'; Name = 'Beep'; Value = 'no'; Type = 'String' }
+
+    # Responsiveness
+    @{ Path = 'HKCU:\Control Panel\Desktop'; Name = 'MenuShowDelay'; Value = '0'; Type = 'String' }
+    @{ Path = 'HKU:\.DEFAULT\Control Panel\Desktop'; Name = 'MenuShowDelay'; Value = '0'; Type = 'String' }
+    @{ Path = 'HKCU:\Control Panel\Desktop'; Name = 'ActiveWndTrkTimeout'; Value = 10 }
+    @{ Path = 'HKU:\.DEFAULT\Control Panel\Desktop'; Name = 'ActiveWndTrkTimeout'; Value = 10 }
+
+    # Timeouts & Shutdown
+    @{ Path = 'HKCU:\Control Panel\Desktop'; Name = 'AutoEndTasks'; Value = '1'; Type = 'String' }
+    @{ Path = 'HKU:\.DEFAULT\Control Panel\Desktop'; Name = 'AutoEndTasks'; Value = '1'; Type = 'String' }
+    @{ Path = 'HKCU:\Control Panel\Desktop'; Name = 'HungAppTimeout'; Value = '2000'; Type = 'String' }
+    @{ Path = 'HKU:\.DEFAULT\Control Panel\Desktop'; Name = 'HungAppTimeout'; Value = '2000'; Type = 'String' }
+    @{ Path = 'HKCU:\Control Panel\Desktop'; Name = 'WaitToKillAppTimeout'; Value = '2000'; Type = 'String' }
+    @{ Path = 'HKU:\.DEFAULT\Control Panel\Desktop'; Name = 'WaitToKillAppTimeout'; Value = '2000'; Type = 'String' }
+    @{ Path = 'HKCU:\Control Panel\Desktop'; Name = 'LowLevelHooksTimeout'; Value = '1000'; Type = 'String' }
+    @{ Path = 'HKU:\.DEFAULT\Control Panel\Desktop'; Name = 'LowLevelHooksTimeout'; Value = '1000'; Type = 'String' }
+
+    # MouseKeys Sensitivity Purge (operation: delete)
+    @{ Path = 'HKCU:\Control Panel\Accessibility\MouseKeys'; Name = 'MaximumSpeed'; Value = '-' }
+    @{ Path = 'HKCU:\Control Panel\Accessibility\MouseKeys'; Name = 'TimeToMaximumSpeed'; Value = '-' }
+    @{ Path = 'HKU:\.DEFAULT\Control Panel\Accessibility\MouseKeys'; Name = 'MaximumSpeed'; Value = '-' }
+    @{ Path = 'HKU:\.DEFAULT\Control Panel\Accessibility\MouseKeys'; Name = 'TimeToMaximumSpeed'; Value = '-' }
+
+    # Mouse Precision (Untick Enhance Pointer Precision)
+    @{ Path = 'HKCU:\Control Panel\Mouse'; Name = 'MouseSpeed'; Value = '0'; Type = 'String' }
+    @{ Path = 'HKCU:\Control Panel\Mouse'; Name = 'MouseThreshold1'; Value = '0'; Type = 'String' }
+    @{ Path = 'HKCU:\Control Panel\Mouse'; Name = 'MouseThreshold2'; Value = '0'; Type = 'String' }
+    @{ Path = 'HKU:\.DEFAULT\Control Panel\Mouse'; Name = 'MouseSpeed'; Value = '0'; Type = 'String' }
+    @{ Path = 'HKU:\.DEFAULT\Control Panel\Mouse'; Name = 'MouseThreshold1'; Value = '0'; Type = 'String' }
+    @{ Path = 'HKU:\.DEFAULT\Control Panel\Mouse'; Name = 'MouseThreshold2'; Value = '0'; Type = 'String' }
+
+    # Online Tips
+    @{ Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer'; Name = 'AllowOnlineTips'; Value = 0 }
+)
+
+# ── 3.2  ease of access hive purge ──────────────────────────
+# YAML'deki tüm 'Flags: 0' ve Hive temizleme işlemleri
+$AccHives = @('AudioDescription', 'Blind Access', 'HighContrast', 'Keyboard Preference', 'Keyboard Response', 'MouseKeys', 'On', 'ShowSounds', 'SlateLaunch', 'SoundSentry', 'StickyKeys', 'TimeOut', 'ToggleKeys')
+foreach ($h in $AccHives) {
+    Set-Reg -Path "HKCU:\Control Panel\Accessibility\$h" -Name "Flags" -Value "0" -Type "String"
+    Set-Reg -Path "HKU:\.DEFAULT\Control Panel\Accessibility\$h" -Name "Flags" -Value "0" -Type "String"
+}
+
+# ── 3.3  explorer & performance ─────────────────────────────
+Write-Step 'explorer performance'
+Apply-Tweaks @(
+    # Folder Discovery Fix
+    @{ Path = 'HKCU:\SOFTWARE\Classes\Local Settings\Software\Microsoft\Windows\Shell\Bags\AllFolders\Shell'; Name = 'FolderType'; Value = 'NotSpecified'; Type = 'String' }
+    @{ Path = 'HKU:\.DEFAULT\SOFTWARE\Classes\Local Settings\Software\Microsoft\Windows\Shell\Bags\AllFolders\Shell'; Name = 'FolderType'; Value = 'NotSpecified'; Type = 'String' }
+
+    # GPU Force for Explorer
+    @{ Path = 'HKCU:\Software\Microsoft\DirectX\UserGpuPreferences'; Name = 'C:\Windows\explorer.exe'; Value = 'GpuPreference=2;'; Type = 'String' }
+    @{ Path = 'HKU:\.DEFAULT\Software\Microsoft\DirectX\UserGpuPreferences'; Name = 'C:\Windows\explorer.exe'; Value = 'GpuPreference=2;'; Type = 'String' }
+
+    # Context Menu Threshold & Shortcut Text
+    @{ Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer'; Name = 'DisableGraphRecentItems'; Value = 1 }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer'; Name = 'MultipleInvokePromptMinimum'; Value = 100 }
+    @{ Path = 'HKU:\.DEFAULT\Software\Microsoft\Windows\CurrentVersion\Explorer'; Name = 'MultipleInvokePromptMinimum'; Value = 100 }
+    @{ Path = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer'; Name = 'link'; Value = ([byte[]](0x00,0x00,0x00,0x00)); Type = 'Binary' }
+    @{ Path = 'HKU:\.DEFAULT\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer'; Name = 'link'; Value = ([byte[]](0x00,0x00,0x00,0x00)); Type = 'Binary' }
+
+    # UI Details & Autoplay/Autorun
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\OperationStatusManager'; Name = 'EnthusiastMode'; Value = 1 }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\AutoplayHandlers'; Name = 'DisableAutoplay'; Value = 1 }
+    @{ Path = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer'; Name = 'NoDriveTypeAutoRun'; Value = 255 }
+    @{ Path = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer'; Name = 'NoLowDiskSpaceChecks'; Value = 1 }
+    @{ Path = 'HKLM:\SYSTEM\ControlSet001\Control'; Name = 'WaitToKillServiceTimeout'; Value = '1500'; Type = 'String' }
+)
+
+# ── 3.4  taskbar & start menu ───────────────────────────────
+Write-Step 'taskbar & shell'
+Apply-Tweaks @(
+    # Animations & Windows Ink
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'; Name = 'TaskbarAnimations'; Value = 0 }
+    @{ Path = 'HKLM:\SOFTWARE\Policies\Microsoft\WindowsInkWorkspace'; Name = 'AllowWindowsInkWorkspace'; Value = 1 }
+    @{ Path = 'HKLM:\SOFTWARE\Policies\Microsoft\WindowsInkWorkspace'; Name = 'AllowSuggestedAppsInWindowsInkWorkspace'; Value = 0 }
+
+    # Recommendations & Notifications
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'; Name = 'Start_IrisRecommendations'; Value = 0 }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'; Name = 'Start_AccountNotifications'; Value = 0 }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\TaskbarDeveloperSettings'; Name = 'TaskbarEndTask'; Value = 1 }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'; Name = 'LaunchTo'; Value = 1 }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'; Name = 'ShowInfoTip'; Value = 0 }
+    @{ Path = 'HKCU:\Software\Policies\Microsoft\Windows\Explorer'; Name = 'NoBalloonFeatureAdvertisements'; Value = 1 }
+    @{ Path = 'HKCU:\Software\Policies\Microsoft\Windows\Explorer'; Name = 'NoAutoTrayNotify'; Value = 1 }
+
+    # Push Notifications & Update Privacy
+    @{ Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\PushNotifications'; Name = 'NoCloudApplicationNotification'; Value = 1 }
+    @{ Path = 'HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate'; Name = 'UpdateNotificationLevel'; Value = 2 }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\UserProfileEngagement'; Name = 'ScoobeSystemSettingEnabled'; Value = 0 }
+)
+
+# ── 3.5  search & indexing (performance) ────────────────────
+Write-Step 'search performance'
+Apply-Tweaks @(
+    @{ Path = 'HKLM:\Software\Microsoft\Windows Search\Gather\Windows\SystemIndex'; Name = 'RespectPowerModes'; Value = 1 }
+    @{ Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search'; Name = 'PreventIndexOnBattery'; Value = 1 }
+    @{ Path = 'HKCU:\Software\Policies\Microsoft\Windows\Explorer'; Name = 'DisableSearchBoxSuggestions'; Value = 1 }
+    @{ Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search'; Name = 'AllowCloudSearch'; Value = 2 }
+    @{ Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search'; Name = 'AllowCortanaAboveLock'; Value = 0 }
+    @{ Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search'; Name = 'DisableWebSearch'; Value = 1 }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Search'; Name = 'BingSearchEnabled'; Value = 0 }
+)
+
+# ── 3.6  branding & start pins ──────────────────────────────
+Write-Step 'branding & oem'
+$Pins = '{"pinnedList":[{"packagedAppId":"Microsoft.WindowsStore_8wekyb3d8bbwe!App"},{"packagedAppId":"windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel"},{"packagedAppId":"Microsoft.WindowsNotepad_8wekyb3d8bbwe!App"},{"packagedAppId":"Microsoft.Paint_8wekyb3d8bbwe!App"},{"desktopAppLink":"%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\File Explorer.lnk"},{"packagedAppId":"Microsoft.WindowsCalculator_8wekyb3d8bbwe!App"}]}'
+Apply-Tweaks @(
+    @{ Path = 'HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\Start'; Name = 'ConfigureStartPins'; Value = $Pins; Type = 'String' }
+    @{ Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Sudo'; Name = 'Enabled'; Value = 3 }
+)
+
+# PowerShell Görevleri (Downloads Folder Group-By Fix)
+$DownloadsID = '{885a186e-a440-4ada-812b-db871b942259}'
+Get-ChildItem -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\FolderTypes\$DownloadsID" -Recurse -EA 0 | ForEach-Object {
+    if ((Get-ItemProperty $_.PSPath -EA 0).GroupBy) { Set-ItemProperty -Path $_.PSPath -Name GroupBy -Value '' -EA 0 }
+}
+
 Write-Step 'registry tweaks complete' 'ok'
 Write-Done 'registry tweaks'
 
@@ -661,8 +788,6 @@ $config = @(
     @{ Name = 'TermService';                              Start = 4 }
     @{ Name = 'UmRdpService';                             Start = 4 }
     @{ Name = 'SessionEnv';                               Start = 4 }
-    # edge update
-    @{ Name = 'edgeupdate';                               Start = 4 }
     # sync
     @{ Name = 'OneSyncSvc';                               Start = 4 }
     @{ Name = 'CDPUserSvc';                               Start = 4 }
@@ -678,7 +803,6 @@ $config = @(
 
 foreach ($svc in $config) {
     $Pattern = "^$($svc.Name)(_[a-fA-F0-9]{4,8})?$"
-
     Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Services' -ErrorAction SilentlyContinue |
         Where-Object { $_.PSChildName -match $Pattern } |
         ForEach-Object {
@@ -805,7 +929,6 @@ foreach ($NIC in $ActiveNICs) {
     $RegPath = Resolve-Path "HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-e325-11ce-bfc1-08002be10318}\*" -ErrorAction SilentlyContinue | Where-Object {
         (Get-ItemProperty $_.Path -Name 'DeviceInstanceID' -ErrorAction SilentlyContinue).DeviceInstanceID -eq $SafeID
     }
-
     if ($RegPath) {
         $p = $RegPath.Path
         $AntiSleep = @(
