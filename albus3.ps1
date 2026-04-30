@@ -269,7 +269,7 @@ Stop-Service -Name 'camsvc' -Force -ErrorAction SilentlyContinue
 Remove-Item -Path "$env:ProgramData\Microsoft\Windows\CapabilityAccessManager\CapabilityConsentStorage.db*" -Force -ErrorAction SilentlyContinue
 
 Write-Done 'system preparation'
-<#
+
 # ════════════════════════════════════════════════════════════
 #  PHASE 2 · SOFTWARE INSTALLATION
 
@@ -2261,7 +2261,6 @@ try {
     }
 } catch {}
 
-#>
 # ── edge ──────────────────────────────────────────────────
 Write-Step 'removing microsoft edge'
 
@@ -2445,7 +2444,7 @@ try {
         '/Online /Cleanup-Image /SPSuperseded'
     )
     foreach ($args in $dismJobs) {
-        # $result = Start-Process -FilePath 'dism.exe' -ArgumentList $args -Wait -NoNewWindow -HideWindow -PassThru
+        $result = Start-Process -FilePath 'dism.exe' -ArgumentList $args -Wait -NoNewWindow -HideWindow -PassThru
         if ($result.ExitCode -eq 0) {
             Write-Step "dism $($args.Split('/')[3].Trim()) done" 'ok'
         } else {
@@ -2559,7 +2558,7 @@ Write-Done 'startup cleanup'
 Write-Phase 'cleanup'
 
 Start-Process cleanmgr.exe -ArgumentList '/autoclean /d C:' -Wait -NoNewWindow
-Remove-Item "C:\Albus" -Recurse -Force -ErrorAction SilentlyContinue
+# Remove-Item "C:\Albus" -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Step 'temp files removed' 'ok'
 Write-Done 'cleanup'
