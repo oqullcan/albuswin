@@ -706,6 +706,50 @@ Apply-Tweaks @(
     @{ Path = 'HKLM:\System\CurrentControlSet\Control\TimeZoneInformation'; Name = 'RealTimeIsUniversal'; Value = 1 }
 )
 
+# ── sound scheme none
+Set-Reg 'HKCU:\AppEvents\Schemes' '' '.None' 'String'
+@(
+    'HKCU:\AppEvents\Schemes\Apps\.Default\.Default\.Current'
+    'HKCU:\AppEvents\Schemes\Apps\.Default\CriticalBatteryAlarm\.Current'
+    'HKCU:\AppEvents\Schemes\Apps\.Default\DeviceConnect\.Current'
+    'HKCU:\AppEvents\Schemes\Apps\.Default\DeviceDisconnect\.Current'
+    'HKCU:\AppEvents\Schemes\Apps\.Default\DeviceFail\.Current'
+    'HKCU:\AppEvents\Schemes\Apps\.Default\FaxBeep\.Current'
+    'HKCU:\AppEvents\Schemes\Apps\.Default\LowBatteryAlarm\.Current'
+    'HKCU:\AppEvents\Schemes\Apps\.Default\MailBeep\.Current'
+    'HKCU:\AppEvents\Schemes\Apps\.Default\MessageNudge\.Current'
+    'HKCU:\AppEvents\Schemes\Apps\.Default\Notification.Default\.Current'
+    'HKCU:\AppEvents\Schemes\Apps\.Default\Notification.IM\.Current'
+    'HKCU:\AppEvents\Schemes\Apps\.Default\Notification.Mail\.Current'
+    'HKCU:\AppEvents\Schemes\Apps\.Default\Notification.Proximity\.Current'
+    'HKCU:\AppEvents\Schemes\Apps\.Default\Notification.Reminder\.Current'
+    'HKCU:\AppEvents\Schemes\Apps\.Default\Notification.SMS\.Current'
+    'HKCU:\AppEvents\Schemes\Apps\.Default\ProximityConnection\.Current'
+    'HKCU:\AppEvents\Schemes\Apps\.Default\SystemAsterisk\.Current'
+    'HKCU:\AppEvents\Schemes\Apps\.Default\SystemExclamation\.Current'
+    'HKCU:\AppEvents\Schemes\Apps\.Default\SystemHand\.Current'
+    'HKCU:\AppEvents\Schemes\Apps\.Default\SystemNotification\.Current'
+    'HKCU:\AppEvents\Schemes\Apps\.Default\WindowsUAC\.Current'
+    'HKCU:\AppEvents\Schemes\Apps\sapisvr\DisNumbersSound\.current'
+    'HKCU:\AppEvents\Schemes\Apps\sapisvr\HubOffSound\.current'
+    'HKCU:\AppEvents\Schemes\Apps\sapisvr\HubOnSound\.current'
+    'HKCU:\AppEvents\Schemes\Apps\sapisvr\HubSleepSound\.current'
+    'HKCU:\AppEvents\Schemes\Apps\sapisvr\MisrecoSound\.current'
+    'HKCU:\AppEvents\Schemes\Apps\sapisvr\PanelSound\.current'
+) | ForEach-Object { Set-Reg $_ '' '' 'String' }
+
+# ── visual effects & animations
+Apply-Tweaks @(
+    @{ Path = 'HKCU:\Control Panel\Desktop';                                            Name = 'UserPreferencesMask'; Value = ([byte[]](0x90,0x12,0x03,0x80,0x12,0x00,0x00,0x00)); Type = 'Binary' }
+    @{ Path = 'HKCU:\Control Panel\Desktop\WindowMetrics';                              Name = 'MinAnimate';          Value = '0'; Type = 'String' }
+    @{ Path = 'HKCU:\Control Panel\Desktop';                                            Name = 'DragFullWindows';     Value = '0'; Type = 'String' }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\DWM';                                   Name = 'EnableAeroPeek';      Value = 0 }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\DWM';                                   Name = 'AlwaysHibernateThumbnails'; Value = 0 }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced';      Name = 'ListviewAlphaSelect'; Value = 0 }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced';      Name = 'ListviewShadow';      Value = 0 }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects'; Name = 'VisualFXSetting'; Value = 3 }
+)
+
 # ── 1.9  mouse
 Write-Step 'control panel — mouse'
 Apply-Tweaks @(
@@ -722,6 +766,22 @@ Apply-Tweaks @(
     @{ Path = 'HKU:\.DEFAULT\Control Panel\Accessibility\MouseKeys'; Name = 'MaximumSpeed';       Value = '-' }
     @{ Path = 'HKU:\.DEFAULT\Control Panel\Accessibility\MouseKeys'; Name = 'TimeToMaximumSpeed'; Value = '-' }
 )
+# ── mouse fix (1:1 epp-on curve)
+Apply-Tweaks @(
+    @{ Path = 'HKCU:\Control Panel\Mouse'; Name = 'MouseSensitivity'; Value = '10'; Type = 'String' }
+    @{ Path = 'HKCU:\Control Panel\Mouse'; Name = 'SmoothMouseXCurve'; Value = ([byte[]](
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0xC0,0xCC,0x0C,0x00,0x00,0x00,0x00,0x00,
+        0x80,0x99,0x19,0x00,0x00,0x00,0x00,0x00,
+        0x40,0x66,0x26,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x33,0x33,0x00,0x00,0x00,0x00,0x00)); Type = 'Binary' }
+    @{ Path = 'HKCU:\Control Panel\Mouse'; Name = 'SmoothMouseYCurve'; Value = ([byte[]](
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x38,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x70,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0xA8,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0xE0,0x00,0x00,0x00,0x00,0x00)); Type = 'Binary' }
+)
 
 # ── 1.10  ease of access — purge & disable
 Write-Step 'ease of access purge'
@@ -732,6 +792,24 @@ foreach ($h in $AccHives) {
     Set-Reg -Path "HKCU:\Control Panel\Accessibility\$h"         -Name 'Flags' -Value '0' -Type 'String'
     Set-Reg -Path "HKU:\.DEFAULT\Control Panel\Accessibility\$h" -Name 'Flags' -Value '0' -Type 'String'
 }
+
+# ── narrator disable
+Apply-Tweaks @(
+    @{ Path = 'HKCU:\Software\Microsoft\Narrator\NoRoam'; Name = 'DuckAudio';           Value = 0 }
+    @{ Path = 'HKCU:\Software\Microsoft\Narrator\NoRoam'; Name = 'WinEnterLaunchEnabled'; Value = 0 }
+    @{ Path = 'HKCU:\Software\Microsoft\Narrator\NoRoam'; Name = 'ScriptingEnabled';     Value = 0 }
+    @{ Path = 'HKCU:\Software\Microsoft\Narrator\NoRoam'; Name = 'OnlineServicesEnabled'; Value = 0 }
+    @{ Path = 'HKCU:\Software\Microsoft\Narrator';        Name = 'NarratorCursorHighlight'; Value = 0 }
+    @{ Path = 'HKCU:\Software\Microsoft\Narrator';        Name = 'CoupleNarratorCursorKeyboard'; Value = 0 }
+    @{ Path = 'HKCU:\SOFTWARE\Microsoft\Narrator';        Name = 'IntonationPause';      Value = 0 }
+    @{ Path = 'HKCU:\SOFTWARE\Microsoft\Narrator';        Name = 'ReadHints';            Value = 0 }
+    @{ Path = 'HKCU:\SOFTWARE\Microsoft\Narrator';        Name = 'ErrorNotificationType'; Value = 0 }
+    @{ Path = 'HKCU:\SOFTWARE\Microsoft\Narrator';        Name = 'EchoChars';            Value = 0 }
+    @{ Path = 'HKCU:\SOFTWARE\Microsoft\Narrator';        Name = 'EchoWords';            Value = 0 }
+    @{ Path = 'HKCU:\SOFTWARE\Microsoft\Narrator\NarratorHome'; Name = 'MinimizeType';   Value = 0 }
+    @{ Path = 'HKCU:\SOFTWARE\Microsoft\Narrator\NarratorHome'; Name = 'AutoStart';      Value = 0 }
+    @{ Path = 'HKCU:\SOFTWARE\Microsoft\Narrator\NoRoam'; Name = 'EchoToggleKeys';       Value = 0 }
+)
 
 # ── 1.11  typing & autocorrect
 Write-Step 'typing & input'
@@ -811,6 +889,23 @@ Apply-Tweaks @(
     @{ Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer'; Name = 'AllowOnlineTips'; Value = 0 }
     # service shutdown timeout (1.5 s)
     @{ Path = 'HKLM:\SYSTEM\ControlSet001\Control'; Name = 'WaitToKillServiceTimeout'; Value = '1500'; Type = 'String' }
+)
+# ── explorer view extras
+Apply-Tweaks @(
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer';           Name = 'ShowFrequent';              Value = 0 }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer';           Name = 'ShowCloudFilesInQuickAccess'; Value = 0 }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced';  Name = 'FolderContentsInfoTip';     Value = 0 }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced';  Name = 'ShowPreviewHandlers';       Value = 0 }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced';  Name = 'ShowStatusBar';             Value = 0 }
+    @{ Path = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced';  Name = 'SharingWizardOn';           Value = 0 }
+    @{ Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer';           Name = 'HubMode';                   Value = 1 }
+    # hide network from sidebar
+    @{ Path = 'HKCU:\Software\Classes\CLSID\{F02C1A0D-BE21-4350-88B0-7367FC96EF3C}'; Name = 'System.IsPinnedToNameSpaceTree'; Value = 0 }
+    # hide gallery from sidebar
+    @{ Path = 'HKCU:\Software\Classes\CLSID\{e88865ea-0e1c-4e20-9aa6-edcd0212c87c}'; Name = 'System.IsPinnedToNameSpaceTree'; Value = 0 }
+    # recycle bin desktop
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\HideDesktopIcons\ClassicStartMenu'; Name = '{645FF040-5081-101B-9F08-00AA002F954E}'; Value = 1 }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\HideDesktopIcons\NewStartPanel';    Name = '{645FF040-5081-101B-9F08-00AA002F954E}'; Value = 1 }
 )
 
 # downloads folder — disable group by
@@ -895,8 +990,6 @@ Apply-Tweaks @(
     # windows ink workspace — on, no suggested apps
     @{ Path = 'HKLM:\SOFTWARE\Policies\Microsoft\WindowsInkWorkspace'; Name = 'AllowWindowsInkWorkspace';                Value = 1 }
     @{ Path = 'HKLM:\SOFTWARE\Policies\Microsoft\WindowsInkWorkspace'; Name = 'AllowSuggestedAppsInWindowsInkWorkspace'; Value = 0 }
-    # power — show sleep in shutdown menu
-    @{ Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\FlyoutMenuSettings'; Name = 'ShowSleepOption'; Value = 1 }
 )
 
 # ── 1.16  notifications & tray
@@ -1251,6 +1344,26 @@ Apply-Tweaks @(
     @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\SystemSettings\AccountNotifications';         Name = 'EnableAccountNotifications'; Value = 1 }
     @{ Path = 'HKU:\.DEFAULT\Software\Microsoft\Windows\CurrentVersion\SystemSettings\AccountNotifications'; Name = 'EnableAccountNotifications'; Value = 1 }
 )
+# ── copilot & ai disable
+Apply-Tweaks @(
+    @{ Path = 'HKCU:\Software\Policies\Microsoft\Windows\WindowsCopilot';  Name = 'TurnOffWindowsCopilot';  Value = 1 }
+    @{ Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot';  Name = 'TurnOffWindowsCopilot';  Value = 1 }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'; Name = 'ShowCopilotButton'; Value = 0 }
+    @{ Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI';       Name = 'AllowRecallEnablement';  Value = 0 }
+    @{ Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI';       Name = 'DisableClickToDo';       Value = 1 }
+    @{ Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint'; Name = 'DisableGenerativeFill'; Value = 1 }
+    @{ Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint'; Name = 'DisableCocreator';      Value = 1 }
+    @{ Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint'; Name = 'DisableImageCreator';   Value = 1 }
+    @{ Path = 'HKLM:\SOFTWARE\Policies\WindowsNotepad';                    Name = 'DisableAIFeatures';      Value = 1 }
+    @{ Path = 'HKLM:\Software\Microsoft\Windows\Shell\Copilot\BingChat';   Name = 'IsUserEligible';         Value = 0 }
+    @{ Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\systemAIModels'; Name = 'Value'; Value = 'Deny'; Type = 'String' }
+)
+# ── cross device resume disable
+Apply-Tweaks @(
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\CrossDeviceResume\Configuration'; Name = 'IsResumeAllowed';         Value = 0 }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\CrossDeviceResume\Configuration'; Name = 'IsOneDriveResumeAllowed'; Value = 0 }
+    @{ Path = 'HKLM:\SOFTWARE\Microsoft\PolicyManager\default\Connectivity\DisableCrossDeviceResume'; Name = 'value'; Value = 1 }
+)
 
 # ── 1.24  app permissions
 Write-Step 'app permissions'
@@ -1426,6 +1539,13 @@ Apply-Tweaks @(
     @{ Path = 'HKCU:\System\GameConfigStore'; Name = 'GameDVR_EFSEFeatureFlags';              Value = 0 }
     @{ Path = 'HKCU:\System\GameConfigStore'; Name = 'GameDVR_FSEBehavior';                   Value = 2 }
 )
+# ── ms-gamebar controller popup redirect
+@('ms-gamebar','ms-gamebarservices','ms-gamingoverlay') | ForEach-Object {
+    Set-Reg "HKCR:\$_"                       ''            "URL:$_"                            'String'
+    Set-Reg "HKCR:\$_"                       'URL Protocol' ''                                 'String'
+    Set-Reg "HKCR:\$_"                       'NoOpenWith'  ''                                  'String'
+    Set-Reg "HKCR:\$_\shell\open\command"    ''            '%SystemRoot%\System32\systray.exe' 'String'
+}
 
 # ── 1.33 windowed optimization (disable)
 Write-Step 'windowed optimization (disable)'
@@ -1460,7 +1580,7 @@ Apply-Tweaks @(
 # ── 1.37 background window message rate limit
 Write-Step 'background window message rate limit'
 Apply-Tweaks @(
-    @{ Path = 'HKCU:\Control Panel\Mouse'; Name = 'RawMouseThrottleEnabled';  Value = 1 }
+    @{ Path = 'HKCU:\Control Panel\Mouse'; Name = 'RawMouseThrottleEnabled';  Value = 0 }
     @{ Path = 'HKCU:\Control Panel\Mouse'; Name = 'RawMouseThrottleDuration'; Value = 20 }
 )
 
@@ -1475,6 +1595,45 @@ Apply-Tweaks @(
     @{ Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation'; Name = 'SupportProvider'; Value = 'Albus Support';                            Type = 'String' }
     @{ Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation'; Name = 'SupportAppURL';   Value = 'albus-support-help';                       Type = 'String' }
     @{ Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\OEMInformation'; Name = 'SupportURL';      Value = 'https://www.github.com/oqullcan/albuswin'; Type = 'String' }
+)
+
+# ── misc
+Apply-Tweaks @(
+    # dst (saat dilimi) bildirimi kapat
+    @{ Path = 'HKCU:\Control Panel\TimeDate';                                        Name = 'DstNotification';              Value = 0 }
+    # dynamic lock kapat
+    @{ Path = 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Winlogon';         Name = 'EnableGoodbye';                Value = 0 }
+    # app archive kapat
+    @{ Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Appx';                      Name = 'AllowAutomaticAppArchiving';   Value = 0 }
+    # input preload kapat
+    @{ Path = 'HKCU:\Software\Microsoft\input';                                       Name = 'IsInputAppPreloadEnabled';     Value = 0 }
+    @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Dsh';                  Name = 'IsPrelaunchEnabled';           Value = 0 }
+    # takvim olaylari kapat
+    @{ Path = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Search';               Name = 'GleamEnabled';                 Value = 0 }
+    @{ Path = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Search';               Name = 'WeatherEnabled';               Value = 0 }
+    @{ Path = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Search';               Name = 'HolidayEnabled';               Value = 0 }
+    # dil degistirme kisayolu kapat
+    @{ Path = 'HKCU:\Keyboard Layout\Toggle';                                         Name = 'Language Hotkey';              Value = '3'; Type = 'String' }
+    @{ Path = 'HKCU:\Keyboard Layout\Toggle';                                         Name = 'Hotkey';                       Value = '3'; Type = 'String' }
+    @{ Path = 'HKCU:\Keyboard Layout\Toggle';                                         Name = 'Layout Hotkey';                Value = '3'; Type = 'String' }
+    # remote assistance kapat
+    @{ Path = 'HKLM:\SYSTEM\CurrentControlSet\Control\Remote Assistance';             Name = 'fAllowToGetHelp';              Value = 0 }
+    # shared internet connection control kapat
+    @{ Path = 'HKLM:\System\ControlSet001\Control\Network\SharedAccessConnection';    Name = 'EnableControl';                Value = 0 }
+    # settings home gizle
+    @{ Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer';    Name = 'SettingsPageVisibility';       Value = 'hide:home;'; Type = 'String' }
+    # start menu most used list gizle
+    @{ Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer';                   Name = 'ShowOrHideMostUsedApps';       Value = 2 }
+    # defrag scheduled task kapat
+    @{ Path = 'HKLM:\SOFTWARE\Microsoft\Dfrg\TaskSettings';                           Name = 'fTaskEnabled';                 Value = 0 }
+    # find my device kapat
+    @{ Path = 'HKLM:\Software\Microsoft\MdmCommon\SettingValues';                     Name = 'LocationSyncEnabled';          Value = 0 }
+    # bsod parametreleri goster
+    @{ Path = 'HKLM:\System\CurrentControlSet\Control\CrashControl';                  Name = 'DisplayParameters';            Value = 1 }
+    # voice typing mic button kapat
+    @{ Path = 'HKCU:\Software\Microsoft\input\Settings';                              Name = 'IsVoiceTypingKeyEnabled';      Value = 0 }
+    # language bar kapat
+    @{ Path = 'HKCU:\SOFTWARE\Microsoft\CTF\LangBar';                                 Name = 'ShowStatus';                   Value = 3 }
 )
 
 Write-Step 'registry tweaks complete' 'ok'
