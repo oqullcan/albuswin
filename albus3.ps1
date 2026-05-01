@@ -2710,9 +2710,9 @@ $totalTime = [math]::Round(((Get-Date) - $TODAY).TotalMinutes, 1)
 
 Write-Host ''
 Write-Host '  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━' -ForegroundColor DarkGray
-Write-Host "  albus v$ALBUS_VERSION  ·  complete  ·  ${totalTime}m" -ForegroundColor White
-Write-Host "  log → $ALBUS_LOG" -ForegroundColor DarkGray
-Write-Host '  restart recommended.' -ForegroundColor DarkGray
+Write-Host "   albus v$ALBUS_VERSION  ·  complete  ·  ${totalTime}m" -ForegroundColor White
+Write-Host "   log → $ALBUS_LOG" -ForegroundColor DarkGray
+Write-Host '   restart recommended.' -ForegroundColor DarkGray
 Write-Host '  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━' -ForegroundColor DarkGray
 Write-Host ''
 
