@@ -2287,7 +2287,13 @@ Write-Step 'bcdedit'
 bcdedit /timeout 10 | Out-Null
 bcdedit /deletevalue useplatformclock | Out-Null
 bcdedit /deletevalue useplatformtick | Out-Null
+bcdedit /set bootux disabled | Out-Null
 bcdedit /set bootmenupolicy legacy | Out-Null
+bcdedit /set tscsyncpolicy Default | Out-Null
+bcdedit /set quietboot yes | Out-Null
+bcdedit /set {globalsettings} custom:16000067 true | Out-Null
+bcdedit /set {globalsettings} custom:16000069 true | Out-Null
+bcdedit /set {globalsettings} custom:16000068 true | Out-Null
 bcdedit /set '{current}' description 'Albus 6.2' | Out-Null
 label C: Albus | Out-Null
 
