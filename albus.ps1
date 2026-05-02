@@ -2316,49 +2316,93 @@ Set-Reg 'HKLM:\SYSTEM\ControlSet001\Control\SafeBoot\Network\MSIServer' '' 'Serv
 Write-Done 'filesystem & boot'
 
 #  PHASE 10 · ALBUSX SERVICE
-
 Write-Phase 'albusx service'
-
 $SvcName = 'AlbusXSvc'
 $ExePath  = "$env:SystemRoot\AlbusX.exe"
 $CSPath   = "$env:SystemRoot\AlbusX.cs"
-$CSC      = "$env:windir\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 $SrcURL   = 'https://raw.githubusercontent.com/oqullcan/albuswin/refs/heads/main/albus/albus.cs'
 
-if (Get-Service $SvcName -ErrorAction SilentlyContinue) {
-    Stop-Service $SvcName -Force -ErrorAction SilentlyContinue
-    sc.exe delete $SvcName | Out-Null
-    Start-Sleep 1
+$CSC = $null
+$dotnetFW = "$env:windir\Microsoft.NET\Framework64"
+if (Test-Path $dotnetFW) {
+    $CSC = Get-ChildItem "$dotnetFW\v*\csc.exe" -ErrorAction SilentlyContinue |
+           Sort-Object { [version]($_.Directory.Name -replace '^v','') } -Descending |
+           Select-Object -First 1 -ExpandProperty FullName
 }
+if (-not $CSC) {
+    $dotnetFW32 = "$env:windir\Microsoft.NET\Framework"
+    $CSC = Get-ChildItem "$dotnetFW32\v*\csc.exe" -ErrorAction SilentlyContinue |
+           Sort-Object { [version]($_.Directory.Name -replace '^v','') } -Descending |
+           Select-Object -First 1 -ExpandProperty FullName
+}
+Write-Step ("csc path: " + $(if ($CSC) { $CSC } else { 'NOT FOUND' }))
+
+$svc = Get-Service $SvcName -ErrorAction SilentlyContinue
+if ($svc) {
+    if ($svc.Status -ne 'Stopped') {
+        Stop-Service $SvcName -Force -ErrorAction SilentlyContinue
+        Start-Sleep 2
+    }
+    sc.exe delete $SvcName | Out-Null
+    Start-Sleep 2
+}
+
+Get-Process -Name 'AlbusX' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Remove-Item $ExePath -Force -ErrorAction SilentlyContinue
+Start-Sleep 1
 
 if (Test-Network) {
     Write-Step 'fetching albusx source'
-    try { Get-File $SrcURL $CSPath } catch { Write-Step 'source fetch failed' 'warn' }
+    try {
+        Get-File $SrcURL $CSPath
+        if (-not (Test-Path $CSPath)) { throw 'dosya indirilmedi' }
+    } catch {
+        Write-Step "source fetch failed: $_" 'warn'
+    }
 }
 
-if ((Test-Path $CSPath) -and (Test-Path $CSC)) {
+if ((Test-Path $CSPath) -and $CSC) {
     Write-Step 'compiling albusx'
-    & $CSC -r:System.ServiceProcess.dll -r:System.Configuration.Install.dll `
-           -r:System.Management.dll -r:Microsoft.Win32.Registry.dll `
-           -out:"$ExePath" "$CSPath" | Out-Null
+    $compileOutput = & $CSC `
+        -r:System.ServiceProcess.dll `
+        -r:System.Configuration.Install.dll `
+        -r:System.Management.dll `
+        -out:"$ExePath" "$CSPath" 2>&1
+
+    if (-not (Test-Path $ExePath)) {
+        Write-Step 'compilation FAILED — errors below' 'warn'
+        $compileOutput | ForEach-Object { Write-Step "  $_" 'warn' }
+    } else {
+        Write-Step 'compilation ok'
+    }
     Remove-Item $CSPath -Force -ErrorAction SilentlyContinue
+} elseif (-not $CSC) {
+    Write-Step 'csc.exe bulunamadi — .NET Framework 4.x yuklu degil' 'warn'
 }
 
 if (Test-Path $ExePath) {
-    New-Service -Name $SvcName -BinaryPathName $ExePath -DisplayName 'AlbusX' `
-        -Description 'albus core engine 3.0 — precision timer, audio latency, memory, interrupt affinity.' `
+    New-Service -Name $SvcName `
+        -BinaryPathName $ExePath `
+        -DisplayName 'AlbusX' `
+        -Description 'albus core engine 1.0 — precision timer, audio latency, memory.' `
         -StartupType Automatic -ErrorAction SilentlyContinue | Out-Null
+
     sc.exe failure $SvcName reset= 60 actions= restart/5000/restart/10000/restart/30000 | Out-Null
+    Start-Sleep 1
     Start-Service $SvcName -ErrorAction SilentlyContinue
-    Write-Step 'albusx running' 'ok'
+
+    $svcCheck = Get-Service $SvcName -ErrorAction SilentlyContinue
+    if ($svcCheck -and $svcCheck.Status -eq 'Running') {
+        Write-Step 'albusx running' 'ok'
+    } else {
+        Write-Step 'albusx service started but status unknown' 'warn'
+    }
 } else {
     Write-Step 'albusx not deployed (compilation unavailable)' 'warn'
 }
 
 Write-Step 'enforcing global kernel timer resolution requests'
 Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\kernel' 'GlobalTimerResolutionRequests' 1
-
 Write-Done 'albusx service'
 
 # ════════════════════════════════════════════════════════════
