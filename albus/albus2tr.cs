@@ -1,27 +1,42 @@
 // ══════════════════════════════════════════════════════════════════════════════
-//  albus  v4.0
+//  albus  v4.1
 //  precision system latency service
+//
+//  SORUMLULUK SINIRI
+//  ─────────────────────────────────────────────────────────────────────────────
+//  Bu servis YALNIZCA runtime'da yaşayan, dinamik, geri alınabilir şeyleri
+//  yönetir. Boot'ta bir kez yazılan kalıcı registry/sistem ayarları (TCP stack,
+//  güç planı, sürücü parametreleri) albus.ps1'e aittir.
+//
+//  katmanlar:
+//    · timer      — 0.5 ms kernel timer resolution, guard + watchdog
+//    · cpu        — hybrid P-core affinity (NUMA-aware), MMCSS Pro Audio
+//    · priority   — process/thread öncelik, DWM boost, explorer throttle
+//    · c-state    — NtPowerInformation kernel idle engelleme + OnStop geri al
+//    · gpu        — D3DKMT realtime scheduling priority
+//    · audio      — IAudioClient3 minimum shared-mode buffer (vtable fix)
+//    · memory     — standby purge (ISLC), working set kilitleme, ghost memory
+//    · irq        — GPU + NIC interrupt affinity (geri alınabilir)
+//    · watchdog   — priority çalınması / timer kayması koruması
+//    · health     — periyodik DPC jitter + RAM + CPU raporu (event log)
+//    · ini        — hedef process listesi + custom resolution, hot-reload
+//    · etw        — WMI yerine ETW kernel-session process izleme
+//
+//  SCRIPT'E BIRAKILAN (bu serviste YOK):
+//    · NetworkThrottlingIndex / SystemResponsiveness  — ps1 step 6.2
+//    · TcpNoDelay / TcpTimedWaitDelay / Tcp1323Opts   — ps1 faz 6
+//    · MaxUserPort                                    — ps1 faz 6
+//    · TrackNblOwner (NDIS debug)                     — ps1 faz 6
+//    · RSS queue registry (*NumRssQueues vb.)         — ps1 faz 6
+//    · Interrupt moderation registry                  — ps1 faz 6
+//    · AFD buffer boyutları                           — ps1 faz 6
+//    · TdrDelay / TdrLevel                            — ps1 GPU phase
 //
 //  derleme:
 //    csc.exe -r:System.ServiceProcess.dll
 //            -r:System.Configuration.Install.dll
 //            -r:System.Management.dll
 //            -out:Albus.exe albus.cs
-//
-//  katmanlar:
-//    · timer      — 0.5 ms kernel timer resolution, guard + 3× retry
-//    · cpu        — hybrid P-core affinity, NUMA-aware, MMCSS Pro Audio
-//    · priority   — process/thread öncelik, DWM boost
-//    · c-state    — kernel-level idle engelleme, servis kapanınca geri al
-//    · gpu        — D3DKMT realtime + TDR optimizasyonu
-//    · audio      — IAudioClient3 minimum buffer, hot-swap yeniden opt. (vtable fix)
-//    · memory     — standby purge (ISLC), working set kilitleme, ghost memory
-//    · irq        — GPU + NIC interrupt affinity, DPC latency izleme
-//    · netirq     — NIC RSS/affinity, interrupt coalescing kapat, SO_PRIORITY
-//    · watchdog   — priority, DWM/timer kayması koruması
-//    · health     — periyodik sistem sağlık raporu (event log)
-//    · ini        — hedef process listesi + custom resolution, hot-reload
-//    · etw        — WMI yerine ETW kernel-session process izleme
 //
 //  servis adı  : AlbusSvc
 //  exe adı     : Albus.exe
@@ -43,11 +58,11 @@ using System.Management;
 using System.Text.RegularExpressions;
 using Microsoft.Win32;
 
-[assembly: AssemblyVersion("4.0.0.0")]
-[assembly: AssemblyFileVersion("4.0.0.0")]
+[assembly: AssemblyVersion("4.1.0.0")]
+[assembly: AssemblyFileVersion("4.1.0.0")]
 [assembly: AssemblyProduct("albus")]
 [assembly: AssemblyTitle("albus")]
-[assembly: AssemblyDescription("precision system latency service v4.0")]
+[assembly: AssemblyDescription("precision system latency service v4.1")]
 
 namespace Albus
 {
@@ -56,8 +71,6 @@ namespace Albus
     // ══════════════════════════════════════════════════════════════════════════
     static class Safe
     {
-        // Hataları yutan değil, loglayan wrapper.
-        // tag: "[albus gpu]" gibi prefix; log: EventLog referansı.
         public static void Run(string tag, Action fn, EventLog log = null)
         {
             try { fn(); }
@@ -98,39 +111,40 @@ namespace Albus
     sealed class AlbusService : ServiceBase
     {
         // ── sabitler ─────────────────────────────────────────────────────────
-        const string SVC_NAME             = "AlbusSvc";
-        const uint   TARGET_RESOLUTION    = 5000u;   // 0.5 ms (100-ns birimi)
-        const uint   RESOLUTION_TOLERANCE = 50u;     // 5 µs
-        const int    GUARD_SEC            = 10;
-        const int    WATCHDOG_SEC         = 10;
-        const int    HEALTH_INITIAL_MIN   = 5;
-        const int    HEALTH_INTERVAL_MIN  = 15;
-        const int    PURGE_INITIAL_MIN    = 2;
-        const int    PURGE_INTERVAL_MIN   = 5;
-        const int    PURGE_THRESHOLD_MB   = 1024;
-
-        // ── Win11 per-process timer build eşiği ──────────────────────────────
-        // Windows 11 22H2 = Build 22621
-        const int    WIN11_PERPROCESS_BUILD = 22621;
+        const string SVC_NAME               = "AlbusSvc";
+        const uint   TARGET_RESOLUTION      = 5000u;   // 0.5 ms (100-ns birimi)
+        const uint   RESOLUTION_TOLERANCE   = 50u;     // 5 µs
+        const int    GUARD_SEC              = 10;
+        const int    WATCHDOG_SEC           = 10;
+        const int    HEALTH_INITIAL_MIN     = 5;
+        const int    HEALTH_INTERVAL_MIN    = 15;
+        const int    PURGE_INITIAL_MIN      = 2;
+        const int    PURGE_INTERVAL_MIN     = 5;
+        const int    PURGE_THRESHOLD_MB     = 1024;
+        const int    WIN11_PERPROCESS_BUILD = 22621;   // Win11 22H2+
 
         // ── durum ─────────────────────────────────────────────────────────────
         uint   defaultRes, minRes, maxRes;
-        uint   targetRes,  customRes;
+        uint   targetRes, customRes;
         long   processCounter;
         IntPtr hWaitTimer = IntPtr.Zero;
         bool   isWin11PerProcess;
 
-        Timer                   guardTimer, purgeTimer, watchdogTimer, healthTimer;
-        ManagementEventWatcher  startWatch;  // fallback: WMI (ETW başarısızsa)
-        FileSystemWatcher       iniWatcher;
-        Thread                  audioThread;
-        Thread                  etwThread;
-        List<string>            processNames;
-        int                     wmiRetry;
-        readonly List<object>   audioClients = new List<object>();
-        AudioNotifier           audioNotifier;
-        long                    dpcBaselineTicks;
-        ManualResetEventSlim    stopEvent = new ManualResetEventSlim(false);
+        Timer                  guardTimer, purgeTimer, watchdogTimer, healthTimer;
+        ManagementEventWatcher startWatch;
+        FileSystemWatcher      iniWatcher;
+        Thread                 audioThread;
+        Thread                 etwThread;
+        List<string>           processNames;
+        int                    wmiRetry;
+        readonly List<object>  audioClients = new List<object>();
+        AudioNotifier          audioNotifier;
+        long                   dpcBaselineTicks;
+        ManualResetEventSlim   stopEvent = new ManualResetEventSlim(false);
+
+        // Geri alma için NIC IRQ orijinal değerler
+        readonly Dictionary<string, byte[]> origNicAffinityMask = new Dictionary<string, byte[]>();
+        readonly Dictionary<string, int>    origNicDevicePolicy  = new Dictionary<string, int>();
 
         // ── giriş ─────────────────────────────────────────────────────────────
         static void Main() { ServiceBase.Run(new AlbusService()); }
@@ -153,7 +167,7 @@ namespace Albus
         {
             stopEvent.Reset();
 
-            // 1. Bu process'in önceliği
+            // 1. Servis process/thread önceliği
             SetSelfPriority();
 
             // 2. ThreadPool min thread
@@ -164,13 +178,11 @@ namespace Albus
                 ThreadPool.SetMinThreads(Math.Max(w, 16), Math.Max(io, 8));
             }, EventLog);
 
-            // 3. GC gecikme modu
+            // 3. GC — sustained low latency
             Safe.Run("gc", () =>
-            {
-                GCSettings.LatencyMode = GCLatencyMode.SustainedLowLatency;
-            }, EventLog);
+                GCSettings.LatencyMode = GCLatencyMode.SustainedLowLatency, EventLog);
 
-            // 4. Waitable high-resolution timer (Win11 per-process kilitleme)
+            // 4. High-resolution waitable timer (Win11 per-process kilitleme)
             Safe.Run("waittimer", () =>
             {
                 hWaitTimer = CreateWaitableTimerExW(
@@ -179,31 +191,30 @@ namespace Albus
                     TIMER_ALL_ACCESS);
             }, EventLog);
 
-            // 5. Working set kilitleme (8–128 MB)
+            // 5. Working set kilitleme: 8–128 MB
             Safe.Run("workingset", () =>
             {
                 SetProcessWorkingSetSizeEx(
                     Process.GetCurrentProcess().Handle,
-                    (UIntPtr)(8  * 1024 * 1024),
+                    (UIntPtr)(8   * 1024 * 1024),
                     (UIntPtr)(128 * 1024 * 1024),
                     QUOTA_LIMITS_HARDWS_MIN_ENABLE);
             }, EventLog);
 
-            // 6. MMCSS Pro Audio
+            // 6. MMCSS Pro Audio — servis thread'i
             Safe.Run("mmcss", () =>
             {
                 uint t = 0;
                 AvSetMmThreadCharacteristics("Pro Audio", ref t);
             }, EventLog);
 
-            // 7. Windows güç kısıtlamasını kapat (EcoQoS/Throttling)
+            // 7. EcoQoS / Intel Thread Director güç kısıtlaması kapat
             DisableThrottling();
 
             // 8. Ekran/sistem uykusunu engelle
             Safe.Run("execstate", () =>
-            {
-                SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED);
-            }, EventLog);
+                SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED),
+                EventLog);
 
             // 9. Win11 per-process timer tespiti
             isWin11PerProcess = DetectWin11PerProcessTimer();
@@ -215,21 +226,20 @@ namespace Albus
             // 11. NUMA-aware P-core affinity
             SetPCoreMaskNuma();
 
-            // 12. C-state devre dışı
+            // 12. C-state kernel seviye engelleme
             DisableCStates();
 
-            // 13. GPU scheduler realtime + TDR optimizasyonu
+            // 13. GPU D3DKMT realtime scheduling
             BoostGpuPriority();
-            OptimizeTdr();
 
-            // 14. Timer resolution hedefini belirle
+            // 14. Timer resolution hedefi
             NtQueryTimerResolution(out minRes, out maxRes, out defaultRes);
             targetRes = customRes > 0
                 ? customRes
                 : Math.Min(TARGET_RESOLUTION, maxRes);
 
             Log(string.Format(
-                "[albus v4.0] min={0} max={1} default={2} target={3} ({4:F3}ms) mod={5}",
+                "[albus v4.1] min={0} max={1} default={2} target={3} ({4:F3}ms) mod={5}",
                 minRes, maxRes, defaultRes,
                 targetRes, targetRes / 10000.0,
                 (processNames != null && processNames.Count > 0)
@@ -238,9 +248,9 @@ namespace Albus
             // 15. DPC latency baseline
             MeasureDpcBaseline();
 
-            // 16. IRQ affinity — GPU + NIC
+            // 16. IRQ affinity — GPU + NIC (OnStop'ta geri alınır)
             OptimizeGpuIrqAffinity();
-            OptimizeNetworkIrq();
+            OptimizeNicIrqAffinity();
 
             // 17. Global veya hedef process modu
             if (processNames == null || processNames.Count == 0)
@@ -252,7 +262,7 @@ namespace Albus
             }
             else
             {
-                StartEtwWatcher();   // ETW tercih edilir
+                StartEtwWatcher();
             }
 
             // 18. Arka plan işçileri
@@ -268,7 +278,7 @@ namespace Albus
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        //  DURDUR
+        //  DURDUR — tüm runtime değişikliklerini geri al
         // ══════════════════════════════════════════════════════════════════════
         protected override void OnStop()
         {
@@ -310,9 +320,7 @@ namespace Albus
                 }
             }, EventLog);
 
-            // Network IRQ geri al
-            RestoreNetworkIrq();
-
+            RestoreNicIrqAffinity();
             RestoreCStates();
             ModulateUiPriority(false);
 
@@ -327,24 +335,26 @@ namespace Albus
             base.OnStop();
         }
 
-        protected override void OnShutdown() { Safe.Run("shutdown", () => OnStop(), EventLog); }
+        protected override void OnShutdown()
+        {
+            Safe.Run("shutdown", () => OnStop(), EventLog);
+        }
 
         protected override bool OnPowerEvent(PowerBroadcastStatus s)
         {
             if (s == PowerBroadcastStatus.ResumeSuspend ||
                 s == PowerBroadcastStatus.ResumeAutomatic)
             {
-                // Uyku sonrası donanım state'i sıfırlanır — kısa bekleme sonrası tam yeniden kurulum
                 Thread.Sleep(2500);
                 SetSelfPriority();
                 SetPCoreMaskNuma();
                 DisableCStates();
                 OptimizeGpuIrqAffinity();
-                OptimizeNetworkIrq();
+                OptimizeNicIrqAffinity();
                 SetResolutionVerified();
                 PurgeStandbyList();
                 MeasureDpcBaseline();
-                Log("[albus resume] uyku sonrasi tam yeniden silahlanma tamamlandi.");
+                Log("[albus resume] uyku sonrasi yeniden silahlanma tamamlandi.");
             }
             return true;
         }
@@ -367,8 +377,6 @@ namespace Albus
                 self.PriorityClass        = ProcessPriorityClass.High;
                 self.PriorityBoostEnabled = false;
                 Thread.CurrentThread.Priority = ThreadPriority.Highest;
-
-                // Thread'in kritik bölümlerde preempt edilmesini zorlaştır
                 SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
             }, EventLog);
         }
@@ -377,11 +385,10 @@ namespace Albus
         {
             Safe.Run("throttling", () =>
             {
-                // EcoQoS / Intel Thread Director güç kısıtlamasını kapat
                 PROCESS_POWER_THROTTLING s;
                 s.Version     = 1;
                 s.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;
-                s.StateMask   = 0;   // 0 = disable throttling
+                s.StateMask   = 0;
                 SetProcessInformation(Process.GetCurrentProcess().Handle,
                     ProcessPowerThrottling, ref s,
                     Marshal.SizeOf(typeof(PROCESS_POWER_THROTTLING)));
@@ -390,8 +397,6 @@ namespace Albus
 
         // ══════════════════════════════════════════════════════════════════════
         //  WIN11 PER-PROCESS TIMER TESPİTİ
-        //  Build 22621+ → NtSetTimerResolution sadece çağıran process'i etkiler.
-        //  Bu durumda hedef process'e inject veya global workaround gerekir.
         // ══════════════════════════════════════════════════════════════════════
         bool DetectWin11PerProcessTimer()
         {
@@ -413,9 +418,8 @@ namespace Albus
 
         // ══════════════════════════════════════════════════════════════════════
         //  HYBRID CPU — NUMA-AWARE P-CORE AFINİTESİ
-        //  AMD Ryzen: CCD boundary latency'den kaçınmak için tek CCD'deki
-        //  P-core'ları (efficiency class max) tercih eder.
-        //  Intel Alder/Raptor Lake: P-core mask doğrudan uygulanır.
+        //  AMD: en fazla P-core'lu NUMA node = tek CCD → boundary gecikmesi yok.
+        //  Intel Alder/Raptor: efficiency class max = P-core.
         // ══════════════════════════════════════════════════════════════════════
         void SetPCoreMaskNuma()
         {
@@ -425,7 +429,7 @@ namespace Albus
                 GetSystemCpuSetInformation(IntPtr.Zero, 0, out needed, IntPtr.Zero, 0);
                 if (needed == 0)
                 {
-                    Log("[albus cpu] CpuSet bilgisi alinamadi, affinity degismedi.");
+                    Log("[albus cpu] CpuSet bilgisi alinamadi.");
                     return;
                 }
 
@@ -436,7 +440,7 @@ namespace Albus
                     if (!GetSystemCpuSetInformation(buf, needed, out returned, IntPtr.Zero, 0))
                         return;
 
-                    // 1. pass — maksimum efficiency class değerini bul
+                    // pass 1: max efficiency class
                     byte maxClass = 0;
                     for (int off = 0; off < (int)returned; )
                     {
@@ -449,12 +453,11 @@ namespace Albus
 
                     if (maxClass == 0)
                     {
-                        Log("[albus cpu] tekdüze topoloji (E/P yok), affinity degismedi.");
+                        Log("[albus cpu] tekdüze topoloji, affinity degismedi.");
                         return;
                     }
 
-                    // 2. pass — her P-core'un NUMA node'unu topla;
-                    //    en fazla P-core'a sahip NUMA node'u seç (AMD CCD sezgisi)
+                    // pass 2: NUMA node başına P-core sayısı ve mask
                     var nodeCount = new Dictionary<byte, int>();
                     var nodeMask  = new Dictionary<byte, long>();
 
@@ -464,18 +467,22 @@ namespace Albus
                         if (sz < 24) break;
                         byte eff    = Marshal.ReadByte(buf, off + 18);
                         byte logCpu = Marshal.ReadByte(buf, off + 14);
-                        byte numa   = Marshal.ReadByte(buf, off + 19); // NumaNodeIndex
+                        byte numa   = Marshal.ReadByte(buf, off + 19);
 
                         if (eff == maxClass)
                         {
-                            if (!nodeCount.ContainsKey(numa)) { nodeCount[numa] = 0; nodeMask[numa] = 0; }
+                            if (!nodeCount.ContainsKey(numa))
+                            {
+                                nodeCount[numa] = 0;
+                                nodeMask[numa]  = 0;
+                            }
                             nodeCount[numa]++;
                             nodeMask[numa] |= (1L << logCpu);
                         }
                         off += sz;
                     }
 
-                    // En fazla P-core'lu NUMA node'unu seç
+                    // En fazla P-core'lu NUMA node'u seç
                     byte bestNuma = 0;
                     int  bestCnt  = 0;
                     foreach (var kv in nodeCount)
@@ -502,7 +509,9 @@ namespace Albus
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        //  C-STATE YÖNETİMİ
+        //  C-STATE — NtPowerInformation kernel seviye
+        //  Script: güç planı CPU min=%100 → farklı katman, tamamlayıcı.
+        //  Servis: kernel idle state doğrudan engellenir, OnStop'ta geri alınır.
         // ══════════════════════════════════════════════════════════════════════
         void DisableCStates()
         {
@@ -524,40 +533,22 @@ namespace Albus
                 Marshal.WriteInt32(p, 0);
                 CallNtPowerInformation(ProcessorIdleDomains, p, 4, IntPtr.Zero, 0);
                 Marshal.FreeHGlobal(p);
+                Log("[albus cstate] C-state geri alindi.");
             }, EventLog);
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        //  GPU SCHEDULER + TDR
+        //  GPU — D3DKMT REALTIME SCHEDULİNG
+        //  TDR ayarları (TdrDelay/TdrLevel) script GPU phase'indedir.
         // ══════════════════════════════════════════════════════════════════════
         void BoostGpuPriority()
         {
             Safe.Run("gpu_priority", () =>
             {
-                int hr = D3DKMTSetProcessSchedulingPriorityClass(
+                int hr = D3DKMTSetProcessSchedulingPriority(
                     Process.GetCurrentProcess().Handle,
                     D3DKMT_SCHEDULINGPRIORITYCLASS_REALTIME);
-                Log(string.Format("[albus gpu] D3DKMT realtime priority (hr=0x{0:X})", hr));
-            }, EventLog);
-        }
-
-        void OptimizeTdr()
-        {
-            Safe.Run("tdr", () =>
-            {
-                // TdrDelay: GPU yanıt timeout'u yükselt (ani spike'larda sıfırlama önlenir)
-                // TdrLevel: 0=kapalı agresif yeniden kurulum, 3=recover (default)
-                // Sadece mevcut değerlerin üzerine yaz, yoksa oluşturma
-                using (RegistryKey key = Registry.LocalMachine.OpenSubKey(
-                    @"SYSTEM\CurrentControlSet\Control\GraphicsDrivers", true))
-                {
-                    if (key == null) return;
-                    object cur = key.GetValue("TdrDelay");
-                    if (cur == null || (int)cur < 10)
-                        key.SetValue("TdrDelay", 10, RegistryValueKind.DWord);
-                    key.SetValue("TdrLevel", 3, RegistryValueKind.DWord);
-                }
-                Log("[albus gpu] TDR optimize edildi (TdrDelay=10s, TdrLevel=3).");
+                Log(string.Format("[albus gpu] D3DKMT realtime scheduling (hr=0x{0:X})", hr));
             }, EventLog);
         }
 
@@ -604,8 +595,7 @@ namespace Albus
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        //  GPU IRQ AFINİTESİ
-        //  GPU interrupt'larını core 0'dan uzaklaştırır.
+        //  GPU IRQ AFINİTESİ — core 0 bypass, dinamik mask
         // ══════════════════════════════════════════════════════════════════════
         void OptimizeGpuIrqAffinity()
         {
@@ -627,8 +617,6 @@ namespace Albus
                                 "Interrupt Management\\Affinity Policy"))
                             {
                                 if (pol == null) continue;
-                                // core 0 hariç — tüm 8 bit'li sistemler için 0xFE
-                                // 16 core+ sistemler için genişletilmiş mask
                                 pol.SetValue("AssignmentSetOverride",
                                     BuildAffinityMask(excludeCore0: true),
                                     RegistryValueKind.Binary);
@@ -640,60 +628,23 @@ namespace Albus
                         }
                     }
                     if (count > 0)
-                        Log(string.Format("[albus irq] GPU IRQ affinity: {0} aygit, core-0 bypass.", count));
+                        Log(string.Format(
+                            "[albus irq] GPU IRQ affinity: {0} aygit, core-0 bypass.", count));
                 }
             }, EventLog);
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        //  NETWORK IRQ KATMANI
-        //  ─────────────────────────────────────────────────────────────────────
-        //  Hedef: NIC interrupt'larının oyun/ses thread'leriyle çakışmasını önle.
+        //  NIC IRQ AFINİTESİ — runtime, OnStop'ta geri alınır
         //
-        //  Yapılanlar:
-        //  1. NIC sınıf registry'sinden tüm aktif adaptörleri bul
-        //  2. Interrupt affinity policy → GPU ile aynı "dedicated" core'lar
-        //     (core 0 bypass, core 1 NIC'e adanmış)
-        //  3. RSS (Receive Side Scaling) → RSS queue'larını tek çekirdeğe sabitle
-        //     ve queue sayısını minimize et (1 veya 2)
-        //  4. Interrupt Moderation / Coalescing → kapat (ultra-low latency)
-        //     (bazı sürücüler bunu desteklemez — sessizce geçilir)
-        //  5. NumaNodeId affinity → NIC'i NUMA-0'a sabitle
-        //  6. Adapter önceliği → QoS DSCP EF (Expedited Forwarding) etkinleştir
-        //  7. TCP/UDP send/receive buffer boyutları optimize et (registry)
-        //  8. Network throttling index → devre dışı
+        //  Sorumluluk sınırı: servis YALNIZCA interrupt affinity'yi yönetir.
+        //  RSS queue, interrupt moderation, TCP/UDP stack parametreleri
+        //  script faz 6'da kalıcı olarak ayarlanmıştır.
         // ══════════════════════════════════════════════════════════════════════
-
-        // Geri alma için orijinal değerleri sakla
-        readonly Dictionary<string, byte[]> origNicAffinityMask  = new Dictionary<string, byte[]>();
-        readonly Dictionary<string, int>    origNicDevicePolicy   = new Dictionary<string, int>();
-
-        void OptimizeNetworkIrq()
+        void OptimizeNicIrqAffinity()
         {
-            Safe.Run("netirq_init", () =>
+            Safe.Run("nic_irq", () =>
             {
-                // A — Tüm NIC'lere IRQ affinity uygula
-                ApplyNicIrqAffinity();
-
-                // B — RSS queue kısıtlaması
-                ApplyRssOptimization();
-
-                // C — Interrupt Moderation kapat
-                DisableInterruptModeration();
-
-                // D — Network stack latency ayarları
-                ApplyNetworkStackTuning();
-
-                Log("[albus netirq] Network IRQ katmani tamamlandi.");
-            }, EventLog);
-        }
-
-        // ── A: NIC IRQ Affinity ───────────────────────────────────────────────
-        void ApplyNicIrqAffinity()
-        {
-            Safe.Run("nic_irq_affinity", () =>
-            {
-                // NIC sınıf GUID
                 const string NIC_CLASS =
                     @"SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002BE10318}";
 
@@ -707,26 +658,24 @@ namespace Albus
                         using (RegistryKey dev = nicClass.OpenSubKey(sub, true))
                         {
                             if (dev == null) continue;
-                            // Sanal / loopback adaptörleri atla
                             if (IsVirtualAdapter(dev)) continue;
 
                             // Orijinal değerleri sakla (geri alma için)
-                            string key = NIC_CLASS + "\\" + sub;
+                            string dictKey = NIC_CLASS + "\\" + sub;
                             using (RegistryKey pol = dev.OpenSubKey(
                                 "Interrupt Management\\Affinity Policy"))
                             {
                                 if (pol != null)
                                 {
                                     object ov = pol.GetValue("AssignmentSetOverride");
-                                    if (ov is byte[]) origNicAffinityMask[key] = (byte[])ov;
+                                    if (ov is byte[]) origNicAffinityMask[dictKey] = (byte[])ov;
                                     object od = pol.GetValue("DevicePolicy");
                                     if (od != null)
-                                        try { origNicDevicePolicy[key] = (int)od; } catch {}
+                                        try { origNicDevicePolicy[dictKey] = (int)od; } catch {}
                                 }
                             }
 
-                            // Yeni affinity: core 1 adanmış NIC core'u
-                            // (core 0 = oyun/servis, core 1 = NIC IRQ, core 2+ = GPU IRQ)
+                            // NIC IRQ → core 1 (core 0 = oyun/servis, core 2+ = GPU)
                             using (RegistryKey pol = dev.CreateSubKey(
                                 "Interrupt Management\\Affinity Policy"))
                             {
@@ -737,8 +686,8 @@ namespace Albus
                                 pol.SetValue("DevicePolicy",
                                     IrqPolicySpecifiedProcessors,
                                     RegistryValueKind.DWord);
+                                count++;
                             }
-                            count++;
                         }
                     }
                     if (count > 0)
@@ -748,12 +697,9 @@ namespace Albus
             }, EventLog);
         }
 
-        // ── B: RSS Optimizasyonu ──────────────────────────────────────────────
-        // RSS queue'larını minimize et; latency odaklı workload'da tek queue
-        // daha az context-switch ve daha az cache-miss sağlar.
-        void ApplyRssOptimization()
+        void RestoreNicIrqAffinity()
         {
-            Safe.Run("rss_opt", () =>
+            Safe.Run("nic_irq_restore", () =>
             {
                 const string NIC_CLASS =
                     @"SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002BE10318}";
@@ -767,191 +713,33 @@ namespace Albus
                         using (RegistryKey dev = nicClass.OpenSubKey(sub, true))
                         {
                             if (dev == null) continue;
-                            if (IsVirtualAdapter(dev)) continue;
-
-                            // *RSS — etkin bırak ama queue sayısını sınırla
-                            // Bazı sürücüler: *NumRssQueues, *MaxRssProcessors
-                            SetNicAdvancedSetting(dev, "*NumRssQueues",    "1");
-                            SetNicAdvancedSetting(dev, "*MaxRssProcessors","1");
-
-                            // RSS base processor: core 1 (NIC IRQ ile uyumlu)
-                            SetNicAdvancedSetting(dev, "*RssBaseProcNumber","1");
-
-                            // Receive buffers — düşük tutarak buffer bloat azalt
-                            // (çok düşük = paket kaybı riski; 128 güvenli alt sınır)
-                            SetNicAdvancedSetting(dev, "*ReceiveBuffers", "256");
-
-                            // Send buffers de latency için optimize
-                            SetNicAdvancedSetting(dev, "*TransmitBuffers", "256");
-                        }
-                    }
-                }
-                Log("[albus netirq] RSS: queue=1, base=core-1, buffers=256.");
-            }, EventLog);
-        }
-
-        // ── C: Interrupt Moderation (Coalescing) Kapatma ─────────────────────
-        // Intel: *InterruptModeration = 0
-        // Realtek: *InterruptThrottleRate = 0
-        // Broadcom: InterruptModeration = 0
-        // Mellanox/NDIS: sürücüye özgü — sessizce geçilir
-        void DisableInterruptModeration()
-        {
-            Safe.Run("int_mod", () =>
-            {
-                const string NIC_CLASS =
-                    @"SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002BE10318}";
-
-                using (RegistryKey nicClass = Registry.LocalMachine.OpenSubKey(NIC_CLASS, true))
-                {
-                    if (nicClass == null) return;
-                    int count = 0;
-                    foreach (string sub in nicClass.GetSubKeyNames())
-                    {
-                        if (!Regex.IsMatch(sub, @"^\d{4}$")) continue;
-                        using (RegistryKey dev = nicClass.OpenSubKey(sub, true))
-                        {
-                            if (dev == null) continue;
-                            if (IsVirtualAdapter(dev)) continue;
-
-                            bool changed = false;
-                            // Her sürücünün kendi keyword'ü — hepsini dene
-                            changed |= SetNicAdvancedSetting(dev, "*InterruptModeration",   "0");
-                            changed |= SetNicAdvancedSetting(dev, "*InterruptThrottleRate", "0");
-                            changed |= SetNicAdvancedSetting(dev, "ITR",                   "0");
-                            changed |= SetNicAdvancedSetting(dev, "InterruptModeration",   "0");
-
-                            if (changed) count++;
-                        }
-                    }
-                    if (count > 0)
-                        Log(string.Format(
-                            "[albus netirq] Interrupt coalescing kapatildi: {0} adaptör.", count));
-                }
-            }, EventLog);
-        }
-
-        // ── D: Network Stack Latency Tuning ──────────────────────────────────
-        void ApplyNetworkStackTuning()
-        {
-            Safe.Run("netstack", () =>
-            {
-                // 1. Nagle algoritması — TCP_NODELAY benzeri global
-                //    Nagle oyun trafiğinde latency'yi artırır
-                //    TcpAckFrequency=1: her paketi hemen acknowledge et
-                using (RegistryKey key = Registry.LocalMachine.OpenSubKey(
-                    @"SOFTWARE\Microsoft\MSMQ\Parameters", true))
-                {
-                    // MSMQ yoksa bu önemsiz
-                }
-
-                // 2. Network Throttling Index — devre dışı (default 10 = aktif)
-                //    Bu değer multimedia streaming'de throttle eder;
-                //    oyun + ses için 0xFFFFFFFF = tamamen devre dışı
-                using (RegistryKey key = Registry.LocalMachine.OpenSubKey(
-                    @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile", true))
-                {
-                    if (key != null)
-                    {
-                        key.SetValue("NetworkThrottlingIndex",
-                            unchecked((int)0xFFFFFFFF), RegistryValueKind.DWord);
-                        key.SetValue("SystemResponsiveness", 0, RegistryValueKind.DWord);
-                        Log("[albus netirq] NetworkThrottlingIndex=off, SystemResponsiveness=0.");
-                    }
-                }
-
-                // 3. TCP Auto-Tuning Level — latency odaklı: disabled veya highlyrestricted
-                //    (disabled: sabit pencere — yüksek throughput yerine low-latency tercih)
-                //    netsh int tcp set global autotuninglevel=disabled eşdeğeri:
-                using (RegistryKey key = Registry.LocalMachine.OpenSubKey(
-                    @"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters", true))
-                {
-                    if (key != null)
-                    {
-                        // EnableWsd: Windows Scaling Disable — eski ağlarda latency düşürür
-                        // TcpTimedWaitDelay: default 240s → 30s (TIME_WAIT soketi hızlı serbest bırak)
-                        key.SetValue("TcpTimedWaitDelay", 30, RegistryValueKind.DWord);
-                        // MaxUserPort: yüksek — port tükenmesini önler
-                        key.SetValue("MaxUserPort", 65534, RegistryValueKind.DWord);
-                        // Disable Nagle globally via TcpNoDelay
-                        key.SetValue("TcpNoDelay", 1, RegistryValueKind.DWord);
-                        // TCP timestamp kapat — header overhead azalt
-                        key.SetValue("Tcp1323Opts", 0, RegistryValueKind.DWord);
-                    }
-                }
-
-                // 4. UDP checksum offload zorla (CPU'yu kurtarır)
-                //    Her NIC'e özel *UDPChecksumOffloadIPv4/v6 aşağıda yapılıyor
-                using (RegistryKey key = Registry.LocalMachine.OpenSubKey(
-                    @"SYSTEM\CurrentControlSet\Services\AFD\Parameters", true))
-                {
-                    if (key != null)
-                    {
-                        // FastSendDatagramThreshold: büyük UDP datagramları için hızlı yol
-                        key.SetValue("FastSendDatagramThreshold", 1024, RegistryValueKind.DWord);
-                        // DefaultReceiveWindow / DefaultSendWindow
-                        key.SetValue("DefaultReceiveWindow", 65536, RegistryValueKind.DWord);
-                        key.SetValue("DefaultSendWindow",    65536, RegistryValueKind.DWord);
-                    }
-                }
-
-                // 5. NDIS arka plan iş parçacığı önceliği
-                using (RegistryKey key = Registry.LocalMachine.OpenSubKey(
-                    @"SYSTEM\CurrentControlSet\Services\Ndis\Parameters", true))
-                {
-                    if (key != null)
-                    {
-                        // TrackNblOwner debug overhead kapat
-                        key.SetValue("TrackNblOwner", 0, RegistryValueKind.DWord);
-                    }
-                }
-            }, EventLog);
-        }
-
-        // ── Geri Alma ─────────────────────────────────────────────────────────
-        void RestoreNetworkIrq()
-        {
-            Safe.Run("netirq_restore", () =>
-            {
-                const string NIC_CLASS =
-                    @"SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002BE10318}";
-
-                using (RegistryKey nicClass = Registry.LocalMachine.OpenSubKey(NIC_CLASS, true))
-                {
-                    if (nicClass == null) return;
-                    foreach (string sub in nicClass.GetSubKeyNames())
-                    {
-                        if (!Regex.IsMatch(sub, @"^\d{4}$")) continue;
-                        using (RegistryKey dev = nicClass.OpenSubKey(sub, true))
-                        {
-                            if (dev == null) continue;
-                            string key = NIC_CLASS + "\\" + sub;
-
+                            string dictKey = NIC_CLASS + "\\" + sub;
                             using (RegistryKey pol = dev.OpenSubKey(
                                 "Interrupt Management\\Affinity Policy", true))
                             {
                                 if (pol == null) continue;
-                                if (origNicAffinityMask.ContainsKey(key))
+                                if (origNicAffinityMask.ContainsKey(dictKey))
                                     pol.SetValue("AssignmentSetOverride",
-                                        origNicAffinityMask[key], RegistryValueKind.Binary);
-                                if (origNicDevicePolicy.ContainsKey(key))
+                                        origNicAffinityMask[dictKey],
+                                        RegistryValueKind.Binary);
+                                if (origNicDevicePolicy.ContainsKey(dictKey))
                                     pol.SetValue("DevicePolicy",
-                                        origNicDevicePolicy[key], RegistryValueKind.DWord);
+                                        origNicDevicePolicy[dictKey],
+                                        RegistryValueKind.DWord);
                             }
                         }
                     }
                 }
-                Log("[albus netirq] NIC IRQ ayarlari geri alindi.");
+                Log("[albus netirq] NIC IRQ affinity geri alindi.");
             }, EventLog);
         }
 
-        // ── Yardımcı: Sanal Adaptör Tespiti ──────────────────────────────────
+        // ── Sanal adaptör tespiti ─────────────────────────────────────────────
         static bool IsVirtualAdapter(RegistryKey dev)
         {
             try
             {
-                // DriverDesc veya DeviceDesc içinde tipik sanal anahtar kelimeler
-                string[] fields = { "DriverDesc", "DeviceDesc", "Description" };
+                string[] fields    = { "DriverDesc", "DeviceDesc", "Description" };
                 string[] vKeywords = {
                     "virtual", "loopback", "tunnel", "vpn", "miniport",
                     "wan", "bluetooth", "hyper-v", "vmware", "virtualbox",
@@ -969,43 +757,13 @@ namespace Albus
             return false;
         }
 
-        // ── Yardımcı: NIC Advanced Setting Yaz ───────────────────────────────
-        // Sürücü keyword'ü varsa değeri yazar ve true döner; yoksa false.
-        static bool SetNicAdvancedSetting(RegistryKey dev, string keyword, string value)
-        {
-            try
-            {
-                // NIC advanced settings: alt anahtarlar "Ndi\params\<keyword>" veya
-                // doğrudan değer olarak saklanabilir.
-                // Önce doğrudan değer dene:
-                object cur = dev.GetValue(keyword);
-                if (cur != null)
-                {
-                    dev.SetValue(keyword, value, RegistryValueKind.String);
-                    return true;
-                }
-                // Sonra Ndi\params içinde ara
-                using (RegistryKey ndi = dev.OpenSubKey("Ndi\\params\\" + keyword))
-                {
-                    if (ndi != null)
-                    {
-                        dev.SetValue(keyword, value, RegistryValueKind.String);
-                        return true;
-                    }
-                }
-            } catch {}
-            return false;
-        }
-
-        // ── Affinity Mask Oluşturucu ──────────────────────────────────────────
-        // İşlemci sayısına bakılmaksızın doğru genişlikte byte[] üretir.
+        // ── Affinity mask üreticiler ──────────────────────────────────────────
         static byte[] BuildAffinityMask(bool excludeCore0)
         {
-            int cpuCount = Environment.ProcessorCount;
+            int cpuCount  = Environment.ProcessorCount;
             int byteCount = Math.Max(4, (cpuCount + 7) / 8);
-            byte[] mask = new byte[byteCount];
-
-            ulong bits = 0;
+            byte[] mask   = new byte[byteCount];
+            ulong  bits   = 0;
             for (int i = 0; i < cpuCount; i++)
             {
                 if (excludeCore0 && i == 0) continue;
@@ -1016,15 +774,12 @@ namespace Albus
             return mask;
         }
 
-        // NIC için: sadece core 1 (GPU core'larından ayrı)
         static byte[] BuildNicAffinityMask()
         {
-            int cpuCount = Environment.ProcessorCount;
+            int cpuCount  = Environment.ProcessorCount;
             int byteCount = Math.Max(4, (cpuCount + 7) / 8);
-            byte[] mask = new byte[byteCount];
-
-            // Core 1 var mı?
-            int nicCore = cpuCount > 1 ? 1 : 0;
+            byte[] mask   = new byte[byteCount];
+            int nicCore   = cpuCount > 1 ? 1 : 0;
             mask[nicCore / 8] = (byte)(1 << (nicCore % 8));
             return mask;
         }
@@ -1048,10 +803,11 @@ namespace Albus
                 Thread.SpinWait(10000);
                 NtSetTimerResolution(targetRes, true, out actual);
             }
+
             Log(string.Format("[albus timer] dogrulandi: {0} ({1:F3}ms)", actual, actual / 10000.0));
 
             if (isWin11PerProcess)
-                Log("[albus timer] UYARI: Win11 per-process mod aktif. Hedef process'in kendi timer resolution'ini ayarlamasi gerekir.");
+                Log("[albus timer] UYARI: Win11 per-process mod aktif.");
         }
 
         void RestoreResolution()
@@ -1131,7 +887,7 @@ namespace Albus
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        //  WATCHDOG — üç bağımsız kontrol
+        //  WATCHDOG — priority çalınması + timer kayması
         // ══════════════════════════════════════════════════════════════════════
         void StartWatchdog()
         {
@@ -1142,7 +898,6 @@ namespace Albus
 
         void WatchdogCallback(object _)
         {
-            // 1. Servis priority
             Safe.Run("wd_selfprio", () =>
             {
                 Process self = Process.GetCurrentProcess();
@@ -1154,7 +909,6 @@ namespace Albus
                 }
             }, EventLog);
 
-            // 2. DWM priority
             Safe.Run("wd_dwm", () =>
             {
                 foreach (Process p in Process.GetProcessesByName("dwm"))
@@ -1165,7 +919,6 @@ namespace Albus
                     } catch {}
             }, EventLog);
 
-            // 3. Timer resolution hızlı kontrol
             Safe.Run("wd_timer", () =>
             {
                 uint qMin, qMax, qCur;
@@ -1175,14 +928,13 @@ namespace Albus
                     uint actual = 0;
                     NtSetTimerResolution(targetRes, true, out actual);
                     Log(string.Format(
-                        "[albus watchdog] timer kaydi: {0:F3}ms → duzeltildi.",
-                        qCur / 10000.0));
+                        "[albus watchdog] timer kaydi: {0:F3}ms → duzeltildi.", qCur / 10000.0));
                 }
             }, EventLog);
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        //  HEALTH MONİTÖR
+        //  HEALTH MONİTÖR — 15 dk'da bir DPC jitter + RAM + CPU
         // ══════════════════════════════════════════════════════════════════════
         void StartHealthMonitor()
         {
@@ -1236,22 +988,20 @@ namespace Albus
                     double baseUs = (dpcBaselineTicks * 1_000_000.0) / Stopwatch.Frequency;
                     if (jitterUs > baseUs * 3.0)
                         Log(string.Format(
-                            "[albus health] UYARI: jitter baseline'dan {0:F1}x yuksek! DPC sorun olabilir.",
+                            "[albus health] UYARI: jitter baseline'dan {0:F1}x yuksek!",
                             jitterUs / baseUs));
                 }
             }, EventLog);
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        //  ETW PROCESS İZLEYİCİ  (WMI'dan çok daha düşük gecikme ve overhead)
-        //  Microsoft-Windows-Kernel-Process provider: {22FB2CD6-0E7B-422B-A0C7-2FAD1FD0E716}
-        //  Event ID 1 = ProcessStart
+        //  ETW PROCESS İZLEYİCİ — kernel-session, ~0-5ms gecikme
         // ══════════════════════════════════════════════════════════════════════
         void StartEtwWatcher()
         {
-            etwThread          = new Thread(EtwWorker);
-            etwThread.Name     = "albus-etw";
-            etwThread.Priority = ThreadPriority.Highest;
+            etwThread              = new Thread(EtwWorker);
+            etwThread.Name         = "albus-etw";
+            etwThread.Priority     = ThreadPriority.Highest;
             etwThread.IsBackground = true;
             etwThread.Start();
         }
@@ -1259,78 +1009,52 @@ namespace Albus
         void EtwWorker()
         {
             bool success = false;
-            Safe.Run("etw_worker", () =>
-            {
-                // ETW Consumer: NT Kernel Logger veya Process provider'dan Process Start
-                // Manuel ETW API çağrısı ile düşük overhead izleme
-                success = TryStartEtwSession();
-            }, EventLog);
-
+            Safe.Run("etw_worker", () => { success = TryStartEtwSession(); }, EventLog);
             if (!success)
             {
-                // ETW başarısız olursa WMI fallback
-                Log("[albus etw] ETW basarisiz, WMI fallback'e geciyor.");
+                Log("[albus etw] ETW basarisiz, WMI fallback.");
                 Safe.Run("wmi_fallback", StartWmiWatcher, EventLog);
             }
         }
 
         bool TryStartEtwSession()
         {
-            // ETW Real-Time Consumer için EVENT_TRACE_LOGFILE kurulumu
-            // Kernel Process provider: GUID {22FB2CD6-0E7B-422B-A0C7-2FAD1FD0E716}
-            // Bu yapı üretim ortamında advapi32 ETW API'sini kullanır.
-
             var logFile = new EVENT_TRACE_LOGFILE();
-            logFile.LoggerName    = "NT Kernel Logger";
-            logFile.ProcessTraceMode = PROCESS_TRACE_MODE_REAL_TIME | PROCESS_TRACE_MODE_EVENT_RECORD;
+            logFile.LoggerName          = "NT Kernel Logger";
+            logFile.ProcessTraceMode    = PROCESS_TRACE_MODE_REAL_TIME | PROCESS_TRACE_MODE_EVENT_RECORD;
             logFile.EventRecordCallback = OnEtwEvent;
 
             IntPtr hTrace = OpenTrace(ref logFile);
             if (hTrace == INVALID_PROCESSTRACE_HANDLE)
             {
-                // "NT Kernel Logger" başlatmak için ayrı session gerekebilir —
-                // Microsoft-Windows-Kernel-Process ile dene
                 logFile.LoggerName = "Albus-KernelProc";
                 hTrace = OpenTrace(ref logFile);
-                if (hTrace == INVALID_PROCESSTRACE_HANDLE)
-                    return false;
+                if (hTrace == INVALID_PROCESSTRACE_HANDLE) return false;
             }
 
-            // ProcessTrace — bloklar, bu yüzden ayrı thread'de çalıştırılıyor
-            Log("[albus etw] ETW trace baslatildi (kernel process events).");
+            Log("[albus etw] ETW trace baslatildi.");
             uint status = ProcessTrace(new IntPtr[] { hTrace }, 1, IntPtr.Zero, IntPtr.Zero);
             CloseTrace(hTrace);
             return (status == 0);
         }
 
-        [ThreadStatic]
-        static HashSet<string> _etwTargetSet;
-
         void OnEtwEvent(ref EVENT_RECORD record)
         {
             Safe.Run("etw_event", () =>
             {
-                // EventID 1 = Process Start
                 if (record.EventHeader.Id != 1) return;
-
-                // UserData'dan process adını çıkar (KERNEL_PROCESS_START_V2 şeması)
-                // Offset 16'dan itibaren ImageFileName (null-terminated WCHAR)
                 if (record.UserDataLength < 20) return;
 
                 string imgName = "";
                 Safe.Run("etw_imgname", () =>
                 {
-                    // ProcessId offset 0 (uint32), ImageFileName offset 8 (wchar*)
-                    // Basit: tüm UserData'yı string olarak parse et
-                    imgName = Marshal.PtrToStringUni(
-                        IntPtr.Add(record.UserData, 8));
+                    imgName = Marshal.PtrToStringUni(IntPtr.Add(record.UserData, 8));
                     if (imgName != null)
                         imgName = System.IO.Path.GetFileName(imgName).ToLowerInvariant();
                 }, EventLog);
 
                 if (string.IsNullOrEmpty(imgName)) return;
 
-                // Hedef process listesiyle eşleştir
                 List<string> targets = processNames;
                 if (targets == null || !targets.Contains(imgName)) return;
 
@@ -1384,13 +1108,10 @@ namespace Albus
 
         void ProcessStarted(uint pid)
         {
-            Safe.Run("proc_started", () =>
-            {
-                uint t = 0;
-                AvSetMmThreadCharacteristics("Pro Audio", ref t);
-            }, EventLog);
+            Safe.Run("proc_mmcss", () =>
+            { uint t = 0; AvSetMmThreadCharacteristics("Pro Audio", ref t); }, EventLog);
 
-            Safe.Run("proc_thread_prio", () =>
+            Safe.Run("proc_prio", () =>
                 Thread.CurrentThread.Priority = ThreadPriority.Highest, EventLog);
 
             SetResolutionVerified();
@@ -1404,7 +1125,6 @@ namespace Albus
                 hProc = OpenProcess(SYNCHRONIZE, 0, pid);
                 if (hProc != IntPtr.Zero) WaitForSingleObject(hProc, -1);
             }, EventLog);
-
             if (hProc != IntPtr.Zero)
                 Safe.Run("proc_close", () => CloseHandle(hProc), EventLog);
 
@@ -1416,9 +1136,7 @@ namespace Albus
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        //  SES GECİKMESİ — IAudioClient3 vtable düzeltmesi
-        //  IAudioClient (v1) → IAudioClient2 → IAudioClient3 zinciri
-        //  Mevcut tanım vtable sırasını doğru yansıtmıyordu.
+        //  SES — IAudioClient3 minimum shared-mode buffer (vtable fix)
         // ══════════════════════════════════════════════════════════════════════
         void StartAudioThread()
         {
@@ -1432,10 +1150,7 @@ namespace Albus
         void AudioWorker()
         {
             Safe.Run("audio_mmcss", () =>
-            {
-                uint t = 0;
-                AvSetMmThreadCharacteristics("Pro Audio", ref t);
-            }, EventLog);
+            { uint t = 0; AvSetMmThreadCharacteristics("Pro Audio", ref t); }, EventLog);
 
             Safe.Run("audio_coinit", () =>
                 CoInitializeEx(IntPtr.Zero, COINIT_MULTITHREADED), EventLog);
@@ -1455,7 +1170,6 @@ namespace Albus
                 OptimizeAllEndpoints(enumerator);
             }, EventLog);
 
-            // Düzgün shutdown: stopEvent bekle
             stopEvent.Wait();
         }
 
@@ -1482,8 +1196,6 @@ namespace Albus
                         if (dev.Activate(ref IID_AC3, CLSCTX_ALL, IntPtr.Zero, out clientObj) != 0)
                             return;
 
-                        // vtable doğru: IAudioClient → IAudioClient2 → IAudioClient3
-                        // GetMixFormat vtable slot 6 (0-based, IUnknown 3 slot + IAudioClient1 sırası)
                         IAudioClient3 client = (IAudioClient3)clientObj;
                         IntPtr pFmt = IntPtr.Zero;
                         if (client.GetMixFormat(out pFmt) != 0) return;
@@ -1521,7 +1233,7 @@ namespace Albus
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        //  CONFIG / INI
+        //  CONFIG / INI — hot-reload
         // ══════════════════════════════════════════════════════════════════════
         void ReadConfig()
         {
@@ -1592,7 +1304,7 @@ namespace Albus
                     SetResolutionVerified();
                     ModulateUiPriority(true);
                 }
-                Log("[albus reload] yapilandirma guncellendi (hot-reload).");
+                Log("[albus reload] yapilandirma guncellendi.");
             }, EventLog);
         }
 
@@ -1609,10 +1321,9 @@ namespace Albus
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        //  P/INVOKE + SABİTLER
+        //  P/INVOKE
         // ══════════════════════════════════════════════════════════════════════
 
-        // ntdll
         [DllImport("ntdll.dll")]
         static extern int NtSetTimerResolution(uint DesiredResolution, bool Set, out uint Current);
         [DllImport("ntdll.dll")]
@@ -1620,7 +1331,6 @@ namespace Albus
         [DllImport("ntdll.dll")]
         static extern int NtSetSystemInformation(int InfoClass, ref int Info, int Len);
 
-        // kernel32
         [DllImport("kernel32.dll")] static extern bool   CloseHandle(IntPtr h);
         [DllImport("kernel32.dll")] static extern IntPtr OpenProcess(uint access, int inherit, uint pid);
         [DllImport("kernel32.dll")] static extern int    WaitForSingleObject(IntPtr h, int ms);
@@ -1640,18 +1350,14 @@ namespace Albus
         [DllImport("kernel32.dll")] static extern IntPtr GetCurrentThread();
         [DllImport("kernel32.dll")] static extern bool   SetThreadPriority(IntPtr hThread, int nPriority);
 
-        // psapi / avrt / ole32 / gdi32 / powrprof
-        [DllImport("psapi.dll")]    static extern int   EmptyWorkingSet(IntPtr hProc);
+        [DllImport("psapi.dll")]    static extern int    EmptyWorkingSet(IntPtr hProc);
         [DllImport("avrt.dll")]     static extern IntPtr AvSetMmThreadCharacteristics(string task, ref uint idx);
-        [DllImport("ole32.dll")]    static extern int   CoInitializeEx(IntPtr pv, uint dwCoInit);
-        [DllImport("gdi32.dll")]    static extern int   D3DKMTSetProcessSchedulingPriority(IntPtr hProc, int pri);
-        static int D3DKMTSetProcessSchedulingPriorityClass(IntPtr h, int c) =>
-            D3DKMTSetProcessSchedulingPriority(h, c);
+        [DllImport("ole32.dll")]    static extern int    CoInitializeEx(IntPtr pv, uint dwCoInit);
+        [DllImport("gdi32.dll")]    static extern int    D3DKMTSetProcessSchedulingPriority(IntPtr hProc, int pri);
         [DllImport("powrprof.dll")]
         static extern uint CallNtPowerInformation(int Level, IntPtr inBuf, uint inLen,
             IntPtr outBuf, uint outLen);
 
-        // ETW
         [DllImport("advapi32.dll", CharSet = CharSet.Unicode)]
         static extern IntPtr OpenTrace(ref EVENT_TRACE_LOGFILE Logfile);
         [DllImport("advapi32.dll")]
@@ -1664,7 +1370,7 @@ namespace Albus
         const uint SYNCHRONIZE                              = 0x00100000u;
         const uint ES_CONTINUOUS                            = 0x80000000u;
         const uint ES_SYSTEM_REQUIRED                       = 0x00000001u;
-        const uint ES_DISPLAY_REQUIRED                     = 0x00000002u;
+        const uint ES_DISPLAY_REQUIRED                      = 0x00000002u;
         const uint CREATE_WAITABLE_TIMER_HIGH_RESOLUTION    = 0x00000002u;
         const uint TIMER_ALL_ACCESS                         = 0x1F0003u;
         const uint QUOTA_LIMITS_HARDWS_MIN_ENABLE           = 0x00000001u;
@@ -1696,7 +1402,6 @@ namespace Albus
             public ushort nBlockAlign, wBitsPerSample, cbSize;
         }
 
-        // ETW yapıları (basitleştirilmiş)
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
         struct EVENT_TRACE_LOGFILE
         {
@@ -1705,8 +1410,8 @@ namespace Albus
             public long  CurrentTime;
             public uint  BuffersRead;
             public uint  ProcessTraceMode;
-            public IntPtr CurrentEvent;     // EVENT_TRACE*
-            public IntPtr LogfileHeader;    // TRACE_LOGFILE_HEADER*
+            public IntPtr CurrentEvent;
+            public IntPtr LogfileHeader;
             public IntPtr BufferCallback;
             public int   BufferSize;
             public int   Filled;
@@ -1754,14 +1459,14 @@ namespace Albus
         [StructLayout(LayoutKind.Sequential)]
         struct ETW_BUFFER_CONTEXT
         {
-            public byte ProcessorNumber;
-            public byte Alignment;
+            public byte  ProcessorNumber;
+            public byte  Alignment;
             public ushort LoggerId;
         }
 
         delegate void EventRecordCallback(ref EVENT_RECORD EventRecord);
 
-        // ── COM arayüzleri — vtable sırası düzeltildi ─────────────────────────
+        // ── COM arayüzleri — tam vtable zinciri (IAudioClient→2→3) ───────────
 
         [ComImport][Guid("0BD7A1BE-7A1A-44DB-8397-CC5392387B5E")]
         [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -1805,7 +1510,6 @@ namespace Albus
             [PreserveSig] int GetState(out int state);
         }
 
-        // IAudioClient (tam vtable — slot 0–9)
         [ComImport][Guid("1CB9AD4C-DBFA-4C32-B178-C2F568A703B2")]
         [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         interface IAudioClient
@@ -1825,12 +1529,10 @@ namespace Albus
             [PreserveSig] int GetService(ref Guid iid, out IntPtr ppv);
         }
 
-        // IAudioClient2 (IAudioClient + 3 ek slot)
         [ComImport][Guid("726778CD-F60A-4EDA-82DE-E47610CD78AA")]
         [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         interface IAudioClient2
         {
-            // IAudioClient sırası korunmalı
             [PreserveSig] int Initialize(int mode, uint flags, long bufDur, long period,
                 IntPtr fmt, IntPtr guid);
             [PreserveSig] int GetBufferSize(out uint frames);
@@ -1844,20 +1546,16 @@ namespace Albus
             [PreserveSig] int Reset();
             [PreserveSig] int SetEventHandle(IntPtr h);
             [PreserveSig] int GetService(ref Guid iid, out IntPtr ppv);
-            // IAudioClient2 ekleri
             [PreserveSig] int IsOffloadCapable(int cat, out int capable);
             [PreserveSig] int SetClientProperties(IntPtr props);
             [PreserveSig] int GetBufferSizeLimits(IntPtr fmt, bool useEventDriven,
                 out long minDur, out long maxDur);
         }
 
-        // IAudioClient3 (IAudioClient2 + 3 ek slot)
-        // GUID: 7ED4EE07-8E67-464A-ACE2-EE41ED53CDFE
         [ComImport][Guid("7ED4EE07-8E67-464A-ACE2-EE41ED53CDFE")]
         [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         interface IAudioClient3
         {
-            // IAudioClient sırası
             [PreserveSig] int Initialize(int mode, uint flags, long bufDur, long period,
                 IntPtr fmt, IntPtr guid);
             [PreserveSig] int GetBufferSize(out uint frames);
@@ -1871,12 +1569,10 @@ namespace Albus
             [PreserveSig] int Reset();
             [PreserveSig] int SetEventHandle(IntPtr h);
             [PreserveSig] int GetService(ref Guid iid, out IntPtr ppv);
-            // IAudioClient2 ekleri
             [PreserveSig] int IsOffloadCapable(int cat, out int capable);
             [PreserveSig] int SetClientProperties(IntPtr props);
             [PreserveSig] int GetBufferSizeLimits(IntPtr fmt, bool useEventDriven,
                 out long minDur, out long maxDur);
-            // IAudioClient3 ekleri — doğru vtable pozisyonu
             [PreserveSig] int GetSharedModeEnginePeriod(IntPtr fmt,
                 out uint defaultPeriodInFrames,
                 out uint fundamentalPeriodInFrames,
@@ -1934,8 +1630,8 @@ namespace Albus
             si.DisplayName  = "albus";
             si.StartType    = ServiceStartMode.Automatic;
             si.Description  =
-                "albus v4.0 — timer, NUMA-CPU, C-state, GPU/TDR, audio, memory, " +
-                "GPU-IRQ, Network-IRQ/RSS, ETW process watcher, watchdog, health.";
+                "albus v4.1 — timer, NUMA-CPU, C-state, GPU D3DKMT, " +
+                "audio IAudioClient3, memory, GPU+NIC IRQ affinity, ETW, watchdog, health.";
 
             Installers.Add(spi);
             Installers.Add(si);
