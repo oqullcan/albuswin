@@ -589,7 +589,7 @@ namespace Albus
                     if (d < best) best = d;
                 }
                 dpcBaselineTicks = best;
-                double us = (best * 1_000_000.0) / Stopwatch.Frequency;
+                double us = (best * 1000000.0) / Stopwatch.Frequency;
                 Log(string.Format("[albus dpc] baseline jitter: {0:F2} µs", us));
             }, EventLog);
         }
@@ -977,7 +977,7 @@ namespace Albus
                     long d = b - a;
                     if (d < jitterBest) jitterBest = d;
                 }
-                double jitterUs = (jitterBest * 1_000_000.0) / Stopwatch.Frequency;
+                double jitterUs = (jitterBest * 1000000.0) / Stopwatch.Frequency;
 
                 Log(string.Format(
                     "[albus health] timer={0:F3}ms | ram={1:F0}MB | cpu={2:F1}% | jitter={3:F2}µs",
@@ -985,7 +985,7 @@ namespace Albus
 
                 if (dpcBaselineTicks > 0)
                 {
-                    double baseUs = (dpcBaselineTicks * 1_000_000.0) / Stopwatch.Frequency;
+                    double baseUs = (dpcBaselineTicks * 1000000.0) / Stopwatch.Frequency;
                     if (jitterUs > baseUs * 3.0)
                         Log(string.Format(
                             "[albus health] WARNING: jitter is {0:F1}x above baseline!",
@@ -1040,15 +1040,20 @@ namespace Albus
 
         void OnEtwEvent(ref EVENT_RECORD record)
         {
+            // C#5: cannot capture ref parameter inside lambda — copy to locals first
+            ushort evtId      = record.EventHeader.Id;
+            ushort evtDataLen = record.UserDataLength;
+            IntPtr evtData    = record.UserData;
+
             Safe.Run("etw_event", () =>
             {
-                if (record.EventHeader.Id != 1) return;
-                if (record.UserDataLength < 20) return;
+                if (evtId != 1) return;
+                if (evtDataLen < 20) return;
 
                 string imgName = "";
                 Safe.Run("etw_imgname", () =>
                 {
-                    imgName = Marshal.PtrToStringUni(IntPtr.Add(record.UserData, 8));
+                    imgName = Marshal.PtrToStringUni(IntPtr.Add(evtData, 8));
                     if (imgName != null)
                         imgName = System.IO.Path.GetFileName(imgName).ToLowerInvariant();
                 }, EventLog);
@@ -1058,7 +1063,7 @@ namespace Albus
                 List<string> targets = processNames;
                 if (targets == null || !targets.Contains(imgName)) return;
 
-                uint pid = (uint)Marshal.ReadInt32(record.UserData, 0);
+                uint pid = (uint)Marshal.ReadInt32(evtData, 0);
                 ThreadPool.QueueUserWorkItem(delegate { ProcessStarted(pid); });
             }, EventLog);
         }
@@ -1620,7 +1625,7 @@ namespace Albus
                         if (Enumerator != null)
                             Service.OptimizeAllEndpoints(Enumerator);
                     }
-                }, Service?.EventLog);
+                }, Service != null ? Service.EventLog : null);
                 return 0;
             }
         }
