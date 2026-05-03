@@ -1476,7 +1476,7 @@ namespace Albus
 
         [ComImport][Guid("0BD7A1BE-7A1A-44DB-8397-CC5392387B5E")]
         [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-        interface IMMDeviceCollection
+        internal interface IMMDeviceCollection
         {
             [PreserveSig] int GetCount(out uint n);
             [PreserveSig] int Item(uint i, out IMMDevice dev);
@@ -1484,7 +1484,7 @@ namespace Albus
 
         [ComImport][Guid("7991EEC9-7E89-4D85-8390-6C703CEC60C0")]
         [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-        interface IMMNotificationClient
+        internal interface IMMNotificationClient
         {
             [PreserveSig] int OnDeviceStateChanged([MarshalAs(UnmanagedType.LPWStr)] string id, int state);
             [PreserveSig] int OnDeviceAdded([MarshalAs(UnmanagedType.LPWStr)] string id);
@@ -1514,7 +1514,7 @@ namespace Albus
 
         [ComImport][Guid("D666063F-1587-4E43-81F1-B948E807363F")]
         [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-        interface IMMDevice
+        internal interface IMMDevice
         {
             [PreserveSig] int Activate(ref Guid iid, int ctx, IntPtr pParams,
                 [MarshalAs(UnmanagedType.IUnknown)] out object ppv);
@@ -1525,7 +1525,7 @@ namespace Albus
 
         [ComImport][Guid("1CB9AD4C-DBFA-4C32-B178-C2F568A703B2")]
         [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-        interface IAudioClient
+        internal interface IAudioClient
         {
             [PreserveSig] int Initialize(int mode, uint flags, long bufDur, long period,
                 IntPtr fmt, IntPtr guid);
@@ -1544,7 +1544,7 @@ namespace Albus
 
         [ComImport][Guid("726778CD-F60A-4EDA-82DE-E47610CD78AA")]
         [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-        interface IAudioClient2
+        internal interface IAudioClient2
         {
             [PreserveSig] int Initialize(int mode, uint flags, long bufDur, long period,
                 IntPtr fmt, IntPtr guid);
@@ -1567,7 +1567,7 @@ namespace Albus
 
         [ComImport][Guid("7ED4EE07-8E67-464A-ACE2-EE41ED53CDFE")]
         [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-        interface IAudioClient3
+        internal interface IAudioClient3
         {
             [PreserveSig] int Initialize(int mode, uint flags, long bufDur, long period,
                 IntPtr fmt, IntPtr guid);
