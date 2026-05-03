@@ -1,46 +1,46 @@
 // ══════════════════════════════════════════════════════════════════════════════
-//  albus  v4.1
+//  albus  v4.2
 //  precision system latency service
 //
-//  SORUMLULUK SINIRI
+//  RESPONSIBILITY BOUNDARY
 //  ─────────────────────────────────────────────────────────────────────────────
-//  Bu servis YALNIZCA runtime'da yaşayan, dinamik, geri alınabilir şeyleri
-//  yönetir. Boot'ta bir kez yazılan kalıcı registry/sistem ayarları (TCP stack,
-//  güç planı, sürücü parametreleri) albus.ps1'e aittir.
+//  This service manages ONLY runtime-resident, dynamic, fully reversible state.
+//  Persistent registry/system settings written once at boot (TCP stack, power
+//  plan, driver parameters) belong to albus.ps1.
 //
-//  katmanlar:
+//  layers:
 //    · timer      — 0.5 ms kernel timer resolution, guard + watchdog
 //    · cpu        — hybrid P-core affinity (NUMA-aware), MMCSS Pro Audio
-//    · priority   — process/thread öncelik, DWM boost, explorer throttle
-//    · c-state    — NtPowerInformation kernel idle engelleme + OnStop geri al
+//    · priority   — process/thread priority, DWM boost, explorer throttle
+//    · c-state    — NtPowerInformation kernel idle block + OnStop restore
 //    · gpu        — D3DKMT realtime scheduling priority
 //    · audio      — IAudioClient3 minimum shared-mode buffer (vtable fix)
-//    · memory     — standby purge (ISLC), working set kilitleme, ghost memory
-//    · irq        — GPU + NIC interrupt affinity (geri alınabilir)
-//    · watchdog   — priority çalınması / timer kayması koruması
-//    · health     — periyodik DPC jitter + RAM + CPU raporu (event log)
-//    · ini        — hedef process listesi + custom resolution, hot-reload
-//    · etw        — WMI yerine ETW kernel-session process izleme
+//    · memory     — standby purge (ISLC), working set lock, ghost memory
+//    · irq        — GPU + NIC interrupt affinity (fully reversible)
+//    · watchdog   — priority theft / timer drift protection
+//    · health     — periodic DPC jitter + RAM + CPU report (event log)
+//    · ini        — target process list + custom resolution, hot-reload
+//    · etw        — ETW kernel-session process tracking (WMI fallback)
 //
-//  SCRIPT'E BIRAKILAN (bu serviste YOK):
+//  LEFT TO SCRIPT (NOT in this service):
 //    · NetworkThrottlingIndex / SystemResponsiveness  — ps1 step 6.2
-//    · TcpNoDelay / TcpTimedWaitDelay / Tcp1323Opts   — ps1 faz 6
-//    · MaxUserPort                                    — ps1 faz 6
-//    · TrackNblOwner (NDIS debug)                     — ps1 faz 6
-//    · RSS queue registry (*NumRssQueues vb.)         — ps1 faz 6
-//    · Interrupt moderation registry                  — ps1 faz 6
-//    · AFD buffer boyutları                           — ps1 faz 6
+//    · TcpNoDelay / TcpTimedWaitDelay / Tcp1323Opts   — ps1 phase 6
+//    · MaxUserPort                                    — ps1 phase 6
+//    · TrackNblOwner (NDIS debug)                     — ps1 phase 6
+//    · RSS queue registry (*NumRssQueues etc.)        — ps1 phase 6
+//    · Interrupt moderation registry                  — ps1 phase 6
+//    · AFD buffer sizes                               — ps1 phase 6
 //    · TdrDelay / TdrLevel                            — ps1 GPU phase
 //
-//  derleme:
+//  compile:
 //    csc.exe -r:System.ServiceProcess.dll
 //            -r:System.Configuration.Install.dll
 //            -r:System.Management.dll
-//            -out:Albus.exe albus.cs
+//            -out:AlbusX.exe albus2tr.cs
 //
-//  servis adı  : AlbusSvc
-//  exe adı     : Albus.exe
-//  ini adı     : Albus.exe.ini   (opsiyonel — yoksa global mod)
+//  service name : AlbusXSvc
+//  exe name     : AlbusX.exe
+//  ini name     : AlbusX.exe.ini   (optional — global mode if absent)
 // ══════════════════════════════════════════════════════════════════════════════
 
 using System;
@@ -58,16 +58,16 @@ using System.Management;
 using System.Text.RegularExpressions;
 using Microsoft.Win32;
 
-[assembly: AssemblyVersion("4.1.0.0")]
-[assembly: AssemblyFileVersion("4.1.0.0")]
+[assembly: AssemblyVersion("4.2.0.0")]
+[assembly: AssemblyFileVersion("4.2.0.0")]
 [assembly: AssemblyProduct("albus")]
 [assembly: AssemblyTitle("albus")]
-[assembly: AssemblyDescription("precision system latency service v4.1")]
+[assembly: AssemblyDescription("precision system latency service v4.2")]
 
 namespace Albus
 {
     // ══════════════════════════════════════════════════════════════════════════
-    //  YARDIMCI — güvenli çalıştırma + yapısal loglama
+    //  HELPER — safe execution + structured logging
     // ══════════════════════════════════════════════════════════════════════════
     static class Safe
     {
@@ -80,7 +80,7 @@ namespace Albus
                     try
                     {
                         log.WriteEntry(
-                            string.Format("[{0}] {1} HATA: {2}",
+                            string.Format("[{0}] {1} ERROR: {2}",
                                 DateTime.Now.ToString("HH:mm:ss"), tag, ex.Message),
                             EventLogEntryType.Warning);
                     } catch {}
@@ -96,7 +96,7 @@ namespace Albus
                     try
                     {
                         log.WriteEntry(
-                            string.Format("[{0}] {1} HATA: {2}",
+                            string.Format("[{0}] {1} ERROR: {2}",
                                 DateTime.Now.ToString("HH:mm:ss"), tag, ex.Message),
                             EventLogEntryType.Warning);
                     } catch {}
@@ -106,13 +106,13 @@ namespace Albus
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  ANA SERVİS
+    //  MAIN SERVICE
     // ══════════════════════════════════════════════════════════════════════════
     sealed class AlbusService : ServiceBase
     {
-        // ── sabitler ─────────────────────────────────────────────────────────
-        const string SVC_NAME               = "AlbusSvc";
-        const uint   TARGET_RESOLUTION      = 5000u;   // 0.5 ms (100-ns birimi)
+        // ── constants ────────────────────────────────────────────────────────
+        const string SVC_NAME               = "AlbusXSvc";
+        const uint   TARGET_RESOLUTION      = 5000u;   // 0.5 ms (100-ns units)
         const uint   RESOLUTION_TOLERANCE   = 50u;     // 5 µs
         const int    GUARD_SEC              = 10;
         const int    WATCHDOG_SEC           = 10;
@@ -123,7 +123,7 @@ namespace Albus
         const int    PURGE_THRESHOLD_MB     = 1024;
         const int    WIN11_PERPROCESS_BUILD = 22621;   // Win11 22H2+
 
-        // ── durum ─────────────────────────────────────────────────────────────
+        // ── state ─────────────────────────────────────────────────────────────
         uint   defaultRes, minRes, maxRes;
         uint   targetRes, customRes;
         long   processCounter;
@@ -142,11 +142,11 @@ namespace Albus
         long                   dpcBaselineTicks;
         ManualResetEventSlim   stopEvent = new ManualResetEventSlim(false);
 
-        // Geri alma için NIC IRQ orijinal değerler
+        // Original NIC IRQ values for restore on stop
         readonly Dictionary<string, byte[]> origNicAffinityMask = new Dictionary<string, byte[]>();
         readonly Dictionary<string, int>    origNicDevicePolicy  = new Dictionary<string, int>();
 
-        // ── giriş ─────────────────────────────────────────────────────────────
+        // ── entry point ───────────────────────────────────────────────────────
         static void Main() { ServiceBase.Run(new AlbusService()); }
 
         public AlbusService()
@@ -161,16 +161,16 @@ namespace Albus
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        //  BAŞLAT
+        //  START
         // ══════════════════════════════════════════════════════════════════════
         protected override void OnStart(string[] args)
         {
             stopEvent.Reset();
 
-            // 1. Servis process/thread önceliği
+            // 1. Service process/thread priority
             SetSelfPriority();
 
-            // 2. ThreadPool min thread
+            // 2. ThreadPool minimum threads
             Safe.Run("threadpool", () =>
             {
                 int w, io;
@@ -182,7 +182,7 @@ namespace Albus
             Safe.Run("gc", () =>
                 GCSettings.LatencyMode = GCLatencyMode.SustainedLowLatency, EventLog);
 
-            // 4. High-resolution waitable timer (Win11 per-process kilitleme)
+            // 4. High-resolution waitable timer (Win11 per-process lock)
             Safe.Run("waittimer", () =>
             {
                 hWaitTimer = CreateWaitableTimerExW(
@@ -191,7 +191,7 @@ namespace Albus
                     TIMER_ALL_ACCESS);
             }, EventLog);
 
-            // 5. Working set kilitleme: 8–128 MB
+            // 5. Working set lock: 8–128 MB
             Safe.Run("workingset", () =>
             {
                 SetProcessWorkingSetSizeEx(
@@ -201,45 +201,45 @@ namespace Albus
                     QUOTA_LIMITS_HARDWS_MIN_ENABLE);
             }, EventLog);
 
-            // 6. MMCSS Pro Audio — servis thread'i
+            // 6. MMCSS Pro Audio — service thread
             Safe.Run("mmcss", () =>
             {
                 uint t = 0;
                 AvSetMmThreadCharacteristics("Pro Audio", ref t);
             }, EventLog);
 
-            // 7. EcoQoS / Intel Thread Director güç kısıtlaması kapat
+            // 7. Disable EcoQoS / Intel Thread Director power throttling
             DisableThrottling();
 
-            // 8. Ekran/sistem uykusunu engelle
+            // 8. Prevent display/system sleep
             Safe.Run("execstate", () =>
                 SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED),
                 EventLog);
 
-            // 9. Win11 per-process timer tespiti
+            // 9. Detect Win11 per-process timer
             isWin11PerProcess = DetectWin11PerProcessTimer();
-            Log(string.Format("[albus init] Win11 per-process timer: {0}", isWin11PerProcess));
+            Log(string.Format("[albus init] win11 per-process timer: {0}", isWin11PerProcess));
 
-            // 10. Config oku
+            // 10. Read config
             ReadConfig();
 
             // 11. NUMA-aware P-core affinity
             SetPCoreMaskNuma();
 
-            // 12. C-state kernel seviye engelleme
+            // 12. C-state kernel-level block
             DisableCStates();
 
             // 13. GPU D3DKMT realtime scheduling
             BoostGpuPriority();
 
-            // 14. Timer resolution hedefi
+            // 14. Timer resolution target
             NtQueryTimerResolution(out minRes, out maxRes, out defaultRes);
             targetRes = customRes > 0
                 ? customRes
                 : Math.Min(TARGET_RESOLUTION, maxRes);
 
             Log(string.Format(
-                "[albus v4.1] min={0} max={1} default={2} target={3} ({4:F3}ms) mod={5}",
+                "[albus v4.2] min={0} max={1} default={2} target={3} ({4:F3}ms) mode={5}",
                 minRes, maxRes, defaultRes,
                 targetRes, targetRes / 10000.0,
                 (processNames != null && processNames.Count > 0)
@@ -248,11 +248,11 @@ namespace Albus
             // 15. DPC latency baseline
             MeasureDpcBaseline();
 
-            // 16. IRQ affinity — GPU + NIC (OnStop'ta geri alınır)
+            // 16. IRQ affinity — GPU + NIC (restored on stop)
             OptimizeGpuIrqAffinity();
             OptimizeNicIrqAffinity();
 
-            // 17. Global veya hedef process modu
+            // 17. Global or target-process mode
             if (processNames == null || processNames.Count == 0)
             {
                 SetResolutionVerified();
@@ -265,7 +265,7 @@ namespace Albus
                 StartEtwWatcher();
             }
 
-            // 18. Arka plan işçileri
+            // 18. Background workers
             StartGuard();
             StartPurge();
             StartWatchdog();
@@ -278,7 +278,7 @@ namespace Albus
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        //  DURDUR — tüm runtime değişikliklerini geri al
+        //  STOP — reverse all runtime changes
         // ══════════════════════════════════════════════════════════════════════
         protected override void OnStop()
         {
@@ -328,7 +328,7 @@ namespace Albus
             {
                 uint actual = 0;
                 NtSetTimerResolution(defaultRes, true, out actual);
-                Log(string.Format("[albus stop] timer geri alindi: {0} ({1:F3}ms)",
+                Log(string.Format("[albus stop] timer restored: {0} ({1:F3}ms)",
                     actual, actual / 10000.0));
             }, EventLog);
 
@@ -354,7 +354,7 @@ namespace Albus
                 SetResolutionVerified();
                 PurgeStandbyList();
                 MeasureDpcBaseline();
-                Log("[albus resume] uyku sonrasi yeniden silahlanma tamamlandi.");
+                Log("[albus resume] post-sleep rearm complete.");
             }
             return true;
         }
@@ -367,7 +367,7 @@ namespace Albus
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        //  KENDİ ÖNCELİĞİ
+        //  SELF PRIORITY
         // ══════════════════════════════════════════════════════════════════════
         void SetSelfPriority()
         {
@@ -396,7 +396,7 @@ namespace Albus
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        //  WIN11 PER-PROCESS TIMER TESPİTİ
+        //  WIN11 PER-PROCESS TIMER DETECTION
         // ══════════════════════════════════════════════════════════════════════
         bool DetectWin11PerProcessTimer()
         {
@@ -417,9 +417,9 @@ namespace Albus
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        //  HYBRID CPU — NUMA-AWARE P-CORE AFINİTESİ
-        //  AMD: en fazla P-core'lu NUMA node = tek CCD → boundary gecikmesi yok.
-        //  Intel Alder/Raptor: efficiency class max = P-core.
+        //  HYBRID CPU — NUMA-AWARE P-CORE AFFINITY
+        //  AMD : NUMA node with highest P-core count = single CCD → no boundary latency.
+        //  Intel Alder/Raptor: max efficiency class = P-core.
         // ══════════════════════════════════════════════════════════════════════
         void SetPCoreMaskNuma()
         {
@@ -429,7 +429,7 @@ namespace Albus
                 GetSystemCpuSetInformation(IntPtr.Zero, 0, out needed, IntPtr.Zero, 0);
                 if (needed == 0)
                 {
-                    Log("[albus cpu] CpuSet bilgisi alinamadi.");
+                    Log("[albus cpu] could not retrieve cpu set info.");
                     return;
                 }
 
@@ -453,11 +453,11 @@ namespace Albus
 
                     if (maxClass == 0)
                     {
-                        Log("[albus cpu] tekdüze topoloji, affinity degismedi.");
+                        Log("[albus cpu] uniform topology, affinity unchanged.");
                         return;
                     }
 
-                    // pass 2: NUMA node başına P-core sayısı ve mask
+                    // pass 2: P-core count and mask per NUMA node
                     var nodeCount = new Dictionary<byte, int>();
                     var nodeMask  = new Dictionary<byte, long>();
 
@@ -482,7 +482,7 @@ namespace Albus
                         off += sz;
                     }
 
-                    // En fazla P-core'lu NUMA node'u seç
+                    // Select NUMA node with highest P-core count
                     byte bestNuma = 0;
                     int  bestCnt  = 0;
                     foreach (var kv in nodeCount)
@@ -493,7 +493,7 @@ namespace Albus
                     {
                         Process.GetCurrentProcess().ProcessorAffinity = (IntPtr)mask;
                         Log(string.Format(
-                            "[albus cpu] NUMA-{0} P-core mask=0x{1:X} ({2} cekirdek)",
+                            "[albus cpu] numa-{0} p-core mask=0x{1:X} ({2} cores)",
                             bestNuma, mask, CountBits(mask)));
                     }
                 }
@@ -509,9 +509,9 @@ namespace Albus
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        //  C-STATE — NtPowerInformation kernel seviye
-        //  Script: güç planı CPU min=%100 → farklı katman, tamamlayıcı.
-        //  Servis: kernel idle state doğrudan engellenir, OnStop'ta geri alınır.
+        //  C-STATE — NtPowerInformation kernel level
+        //  Script: power plan CPU min=100% → separate layer, complementary.
+        //  Service: kernel idle state blocked directly, restored on stop.
         // ══════════════════════════════════════════════════════════════════════
         void DisableCStates()
         {
@@ -521,7 +521,7 @@ namespace Albus
                 Marshal.WriteInt32(p, 1);
                 CallNtPowerInformation(ProcessorIdleDomains, p, 4, IntPtr.Zero, 0);
                 Marshal.FreeHGlobal(p);
-                Log("[albus cstate] C-state gecisleri engellendi (kernel seviye).");
+                Log("[albus cstate] c-state transitions blocked (kernel level).");
             }, EventLog);
         }
 
@@ -533,13 +533,13 @@ namespace Albus
                 Marshal.WriteInt32(p, 0);
                 CallNtPowerInformation(ProcessorIdleDomains, p, 4, IntPtr.Zero, 0);
                 Marshal.FreeHGlobal(p);
-                Log("[albus cstate] C-state geri alindi.");
+                Log("[albus cstate] c-state transitions restored.");
             }, EventLog);
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        //  GPU — D3DKMT REALTIME SCHEDULİNG
-        //  TDR ayarları (TdrDelay/TdrLevel) script GPU phase'indedir.
+        //  GPU — D3DKMT REALTIME SCHEDULING
+        //  TDR settings (TdrDelay/TdrLevel) are in script GPU phase.
         // ══════════════════════════════════════════════════════════════════════
         void BoostGpuPriority()
         {
@@ -548,12 +548,12 @@ namespace Albus
                 int hr = D3DKMTSetProcessSchedulingPriority(
                     Process.GetCurrentProcess().Handle,
                     D3DKMT_SCHEDULINGPRIORITYCLASS_REALTIME);
-                Log(string.Format("[albus gpu] D3DKMT realtime scheduling (hr=0x{0:X})", hr));
+                Log(string.Format("[albus gpu] d3dkmt realtime scheduling (hr=0x{0:X})", hr));
             }, EventLog);
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        //  UI ÖNCELİK MODULASYONU
+        //  UI PRIORITY MODULATION
         // ══════════════════════════════════════════════════════════════════════
         void ModulateUiPriority(bool boost)
         {
@@ -595,7 +595,7 @@ namespace Albus
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        //  GPU IRQ AFINİTESİ — core 0 bypass, dinamik mask
+        //  GPU IRQ AFFINITY — core 0 bypass, dynamic mask
         // ══════════════════════════════════════════════════════════════════════
         void OptimizeGpuIrqAffinity()
         {
@@ -629,17 +629,17 @@ namespace Albus
                     }
                     if (count > 0)
                         Log(string.Format(
-                            "[albus irq] GPU IRQ affinity: {0} aygit, core-0 bypass.", count));
+                            "[albus irq] gpu irq affinity: {0} device(s), core-0 bypassed.", count));
                 }
             }, EventLog);
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        //  NIC IRQ AFINİTESİ — runtime, OnStop'ta geri alınır
+        //  NIC IRQ AFFINITY — runtime, restored on stop
         //
-        //  Sorumluluk sınırı: servis YALNIZCA interrupt affinity'yi yönetir.
-        //  RSS queue, interrupt moderation, TCP/UDP stack parametreleri
-        //  script faz 6'da kalıcı olarak ayarlanmıştır.
+        //  Boundary: service manages interrupt affinity ONLY.
+        //  RSS queues, interrupt moderation, TCP/UDP stack params
+        //  are set permanently by script phase 6.
         // ══════════════════════════════════════════════════════════════════════
         void OptimizeNicIrqAffinity()
         {
@@ -660,7 +660,7 @@ namespace Albus
                             if (dev == null) continue;
                             if (IsVirtualAdapter(dev)) continue;
 
-                            // Orijinal değerleri sakla (geri alma için)
+                            // Save original values for restore
                             string dictKey = NIC_CLASS + "\\" + sub;
                             using (RegistryKey pol = dev.OpenSubKey(
                                 "Interrupt Management\\Affinity Policy"))
@@ -675,7 +675,7 @@ namespace Albus
                                 }
                             }
 
-                            // NIC IRQ → core 1 (core 0 = oyun/servis, core 2+ = GPU)
+                            // NIC IRQ → core 1 (core 0 = game/service, core 2+ = GPU)
                             using (RegistryKey pol = dev.CreateSubKey(
                                 "Interrupt Management\\Affinity Policy"))
                             {
@@ -692,7 +692,7 @@ namespace Albus
                     }
                     if (count > 0)
                         Log(string.Format(
-                            "[albus netirq] NIC IRQ affinity: {0} adaptör, core-1 adanmis.", count));
+                            "[albus netirq] nic irq affinity: {0} adapter(s), core-1 dedicated.", count));
                 }
             }, EventLog);
         }
@@ -730,11 +730,11 @@ namespace Albus
                         }
                     }
                 }
-                Log("[albus netirq] NIC IRQ affinity geri alindi.");
+                Log("[albus netirq] nic irq affinity restored.");
             }, EventLog);
         }
 
-        // ── Sanal adaptör tespiti ─────────────────────────────────────────────
+        // ── Virtual adapter detection ─────────────────────────────────────────
         static bool IsVirtualAdapter(RegistryKey dev)
         {
             try
@@ -757,7 +757,7 @@ namespace Albus
             return false;
         }
 
-        // ── Affinity mask üreticiler ──────────────────────────────────────────
+        // ── Affinity mask builders ────────────────────────────────────────────
         static byte[] BuildAffinityMask(bool excludeCore0)
         {
             int cpuCount  = Environment.ProcessorCount;
@@ -804,10 +804,10 @@ namespace Albus
                 NtSetTimerResolution(targetRes, true, out actual);
             }
 
-            Log(string.Format("[albus timer] dogrulandi: {0} ({1:F3}ms)", actual, actual / 10000.0));
+            Log(string.Format("[albus timer] verified: {0} ({1:F3}ms)", actual, actual / 10000.0));
 
             if (isWin11PerProcess)
-                Log("[albus timer] UYARI: Win11 per-process mod aktif.");
+                Log("[albus timer] WARNING: win11 per-process mode active.");
         }
 
         void RestoreResolution()
@@ -841,13 +841,13 @@ namespace Albus
                     NtQueryTimerResolution(out qMin, out qMax, out qCur);
                     if (qCur <= targetRes + RESOLUTION_TOLERANCE) break;
                 }
-                Log(string.Format("[albus guard] drift duzeltildi: {0} → {1} ({2:F3}ms)",
+                Log(string.Format("[albus guard] drift corrected: {0} → {1} ({2:F3}ms)",
                     qCur, actual, actual / 10000.0));
             }, EventLog);
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        //  BELLEK
+        //  MEMORY
         // ══════════════════════════════════════════════════════════════════════
         void PurgeStandbyList()
         {
@@ -880,14 +880,14 @@ namespace Albus
                 if (mb < PURGE_THRESHOLD_MB)
                 {
                     PurgeStandbyList();
-                    Log(string.Format("[albus islc] purge tetiklendi, musait={0:F0}MB.", mb));
+                    Log(string.Format("[albus islc] purge triggered, available={0:F0}MB.", mb));
                 }
             }, EventLog);
             GhostMemory();
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        //  WATCHDOG — priority çalınması + timer kayması
+        //  WATCHDOG — priority theft + timer drift
         // ══════════════════════════════════════════════════════════════════════
         void StartWatchdog()
         {
@@ -903,7 +903,7 @@ namespace Albus
                 Process self = Process.GetCurrentProcess();
                 if (self.PriorityClass != ProcessPriorityClass.High)
                 {
-                    Log(string.Format("[albus watchdog] priority calinmis ({0}), geri aliniyor.",
+                    Log(string.Format("[albus watchdog] priority stolen ({0}), restoring.",
                         self.PriorityClass));
                     self.PriorityClass = ProcessPriorityClass.High;
                 }
@@ -928,13 +928,13 @@ namespace Albus
                     uint actual = 0;
                     NtSetTimerResolution(targetRes, true, out actual);
                     Log(string.Format(
-                        "[albus watchdog] timer kaydi: {0:F3}ms → duzeltildi.", qCur / 10000.0));
+                        "[albus watchdog] timer drifted: {0:F3}ms → corrected.", qCur / 10000.0));
                 }
             }, EventLog);
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        //  HEALTH MONİTÖR — 15 dk'da bir DPC jitter + RAM + CPU
+        //  HEALTH MONITOR — DPC jitter + RAM + CPU every 15 min
         // ══════════════════════════════════════════════════════════════════════
         void StartHealthMonitor()
         {
@@ -988,14 +988,14 @@ namespace Albus
                     double baseUs = (dpcBaselineTicks * 1_000_000.0) / Stopwatch.Frequency;
                     if (jitterUs > baseUs * 3.0)
                         Log(string.Format(
-                            "[albus health] UYARI: jitter baseline'dan {0:F1}x yuksek!",
+                            "[albus health] WARNING: jitter is {0:F1}x above baseline!",
                             jitterUs / baseUs));
                 }
             }, EventLog);
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        //  ETW PROCESS İZLEYİCİ — kernel-session, ~0-5ms gecikme
+        //  ETW PROCESS TRACKER — kernel-session, ~0-5ms latency
         // ══════════════════════════════════════════════════════════════════════
         void StartEtwWatcher()
         {
@@ -1012,7 +1012,7 @@ namespace Albus
             Safe.Run("etw_worker", () => { success = TryStartEtwSession(); }, EventLog);
             if (!success)
             {
-                Log("[albus etw] ETW basarisiz, WMI fallback.");
+                Log("[albus etw] etw failed, falling back to wmi.");
                 Safe.Run("wmi_fallback", StartWmiWatcher, EventLog);
             }
         }
@@ -1032,7 +1032,7 @@ namespace Albus
                 if (hTrace == INVALID_PROCESSTRACE_HANDLE) return false;
             }
 
-            Log("[albus etw] ETW trace baslatildi.");
+            Log("[albus etw] etw trace started.");
             uint status = ProcessTrace(new IntPtr[] { hTrace }, 1, IntPtr.Zero, IntPtr.Zero);
             CloseTrace(hTrace);
             return (status == 0);
@@ -1077,7 +1077,7 @@ namespace Albus
             startWatch.Stopped      += OnWatcherStopped;
             startWatch.Start();
             wmiRetry = 0;
-            Log("[albus watcher] WMI izleniyor: " + string.Join(", ", processNames));
+            Log("[albus watcher] wmi watching: " + string.Join(", ", processNames));
         }
 
         void OnWatcherStopped(object sender, StoppedEventArgs e)
@@ -1091,7 +1091,7 @@ namespace Albus
                 if (startWatch != null) try { startWatch.Dispose(); } catch {}
                 startWatch = null;
                 StartWmiWatcher();
-                Log("[albus watcher] WMI yeniden baglandi.");
+                Log("[albus watcher] wmi reconnected.");
             }, EventLog);
         }
 
@@ -1132,11 +1132,16 @@ namespace Albus
             RestoreResolution();
             PurgeStandbyList();
             GhostMemory();
-            Log("[albus rested] process kapandi, onarim tamamlandi.");
+            Log("[albus rested] process exited, cleanup complete.");
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        //  SES — IAudioClient3 minimum shared-mode buffer (vtable fix)
+        //  AUDIO — IAudioClient3 minimum shared-mode buffer
+        //
+        //  FIX (CS0051): IMMDeviceEnumerator is declared internal by default.
+        //  OptimizeAllEndpoints() is internal — consistent accessibility.
+        //  AudioNotifier holds the enumerator as the interface type directly,
+        //  keeping everything within the same assembly-internal visibility.
         // ══════════════════════════════════════════════════════════════════════
         void StartAudioThread()
         {
@@ -1173,6 +1178,7 @@ namespace Albus
             stopEvent.Wait();
         }
 
+        // CS0051 FIX: method visibility matches IMMDeviceEnumerator (both internal)
         internal void OptimizeAllEndpoints(IMMDeviceEnumerator enumerator)
         {
             Safe.Run("audio_endpoints", () =>
@@ -1219,7 +1225,7 @@ namespace Albus
                                     ? devId.Substring(devId.Length - 8) : (devId ?? "?");
 
                                 Log(string.Format(
-                                    "[albus audio] {0}: {1:F3}ms → {2:F3}ms (kare {3}→{4})",
+                                    "[albus audio] {0}: {1:F3}ms → {2:F3}ms (frames {3}→{4})",
                                     shortId,
                                     (defF / (double)fmt.nSamplesPerSec) * 1000.0,
                                     (minF / (double)fmt.nSamplesPerSec) * 1000.0,
@@ -1304,12 +1310,12 @@ namespace Albus
                     SetResolutionVerified();
                     ModulateUiPriority(true);
                 }
-                Log("[albus reload] yapilandirma guncellendi.");
+                Log("[albus reload] config reloaded.");
             }, EventLog);
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        //  KAYIT
+        //  LOGGING
         // ══════════════════════════════════════════════════════════════════════
         void Log(string msg)
         {
@@ -1366,7 +1372,7 @@ namespace Albus
         [DllImport("advapi32.dll")]
         static extern uint CloseTrace(IntPtr TraceHandle);
 
-        // ── sabitler ─────────────────────────────────────────────────────────
+        // ── constants ─────────────────────────────────────────────────────────
         const uint SYNCHRONIZE                              = 0x00100000u;
         const uint ES_CONTINUOUS                            = 0x80000000u;
         const uint ES_SYSTEM_REQUIRED                       = 0x00000001u;
@@ -1388,7 +1394,7 @@ namespace Albus
         const int  PROCESS_TRACE_MODE_EVENT_RECORD          = 0x10000000;
         static readonly IntPtr INVALID_PROCESSTRACE_HANDLE  = new IntPtr(-1);
 
-        // ── yapılar ───────────────────────────────────────────────────────────
+        // ── structs ───────────────────────────────────────────────────────────
 
         [StructLayout(LayoutKind.Sequential)]
         struct PROCESS_POWER_THROTTLING
@@ -1466,7 +1472,7 @@ namespace Albus
 
         delegate void EventRecordCallback(ref EVENT_RECORD EventRecord);
 
-        // ── COM arayüzleri — tam vtable zinciri (IAudioClient→2→3) ───────────
+        // ── COM interfaces — full vtable chain (IAudioClient→2→3) ─────────────
 
         [ComImport][Guid("0BD7A1BE-7A1A-44DB-8397-CC5392387B5E")]
         [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -1478,7 +1484,7 @@ namespace Albus
 
         [ComImport][Guid("7991EEC9-7E89-4D85-8390-6C703CEC60C0")]
         [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-        public interface IMMNotificationClient
+        interface IMMNotificationClient
         {
             [PreserveSig] int OnDeviceStateChanged([MarshalAs(UnmanagedType.LPWStr)] string id, int state);
             [PreserveSig] int OnDeviceAdded([MarshalAs(UnmanagedType.LPWStr)] string id);
@@ -1488,9 +1494,16 @@ namespace Albus
             [PreserveSig] int OnPropertyValueChanged([MarshalAs(UnmanagedType.LPWStr)] string id, IntPtr key);
         }
 
+        // CS0051 ROOT CAUSE + FIX:
+        // IMMDeviceEnumerator had no explicit access modifier → defaulted to internal.
+        // OptimizeAllEndpoints() was declared internal — same level — so C#6+ is fine,
+        // but the legacy csc.exe (C#5, .NET 4.x) enforces stricter rules and rejects
+        // an internal parameter type on an internal method when called from a nested
+        // class (AudioNotifier) that holds it as a field. Explicitly marking the
+        // interface internal makes the contract unambiguous to the old compiler.
         [ComImport][Guid("A95664D2-9614-4F35-A746-DE8DB63617E6")]
         [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-        interface IMMDeviceEnumerator
+        internal interface IMMDeviceEnumerator
         {
             [PreserveSig] int EnumAudioEndpoints(int flow, int state, out IMMDeviceCollection col);
             [PreserveSig] int GetDefaultAudioEndpoint(int flow, int role, out IMMDevice dev);
@@ -1585,6 +1598,7 @@ namespace Albus
                 IntPtr fmt, IntPtr audioSessionGuid);
         }
 
+        // AudioNotifier uses IMMDeviceEnumerator as internal field — consistent.
         class AudioNotifier : IMMNotificationClient
         {
             public AlbusService        Service;
@@ -1601,7 +1615,7 @@ namespace Albus
                 {
                     if (Service != null)
                     {
-                        Service.Log("[albus audio] cihaz degisimi — yeniden optimize ediliyor.");
+                        Service.Log("[albus audio] device change — re-optimizing endpoints.");
                         lock (Service.audioClients) Service.audioClients.Clear();
                         if (Enumerator != null)
                             Service.OptimizeAllEndpoints(Enumerator);
@@ -1613,7 +1627,7 @@ namespace Albus
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  KURULUM
+    //  INSTALLER
     // ══════════════════════════════════════════════════════════════════════════
     [RunInstaller(true)]
     public class AlbusInstaller : Installer
@@ -1626,11 +1640,11 @@ namespace Albus
             spi.Password = null;
 
             ServiceInstaller si = new ServiceInstaller();
-            si.ServiceName  = "AlbusSvc";
-            si.DisplayName  = "albus";
+            si.ServiceName  = "AlbusXSvc";
+            si.DisplayName  = "AlbusX";
             si.StartType    = ServiceStartMode.Automatic;
             si.Description  =
-                "albus v4.1 — timer, NUMA-CPU, C-state, GPU D3DKMT, " +
+                "albus v4.2 — timer, NUMA-CPU, C-state, GPU D3DKMT, " +
                 "audio IAudioClient3, memory, GPU+NIC IRQ affinity, ETW, watchdog, health.";
 
             Installers.Add(spi);
