@@ -2560,48 +2560,82 @@ function Remove-OneDrive {
     if (-not (Get-PSDrive -Name HKU -ErrorAction SilentlyContinue)) {
         New-PSDrive -Name HKU -PSProvider Registry -Root HKEY_USERS | Out-Null
     }
-
-    $setupPaths       = [System.Collections.ArrayList]@()
-    $fallbackPaths    = @(
+    $exePaths = New-Object System.Collections.Generic.List[string]
+    $fallbackPaths = @(
         "$env:SystemRoot\System32\OneDriveSetup.exe",
         "$env:SystemRoot\SysWOW64\OneDriveSetup.exe"
     )
-
     Get-ChildItem 'HKU:\' -ErrorAction SilentlyContinue | ForEach-Object {
         $sid = $_.PSChildName
-        if (Test-Path "HKU:\$sid\Volatile Environment") {
-            $regPath        = "HKU:\$sid\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\OneDriveSetup.exe"
-            $uninstallStr   = (Get-ItemProperty -Path $regPath -EA SilentlyContinue).UninstallString
-            if (-not [string]::IsNullOrEmpty($uninstallStr)) {
-                $setupPaths.Add([System.IO.Path]::GetDirectoryName($uninstallStr)) | Out-Null
+        if ($sid -notmatch '^S-1-5-21-') { return }
+        $regPath = "HKU:\$sid\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\OneDriveSetup.exe"
+        try {
+            $uninstallStr = (Get-ItemProperty -Path $regPath -ErrorAction Stop).UninstallString
+        } catch {
+            $uninstallStr = $null
+        }
+        if ($uninstallStr) {
+            $exePath = $null
+            if ($uninstallStr -match '^"(.+?)"') {
+                $exePath = $matches[1]
+            } else {
+                $exePath = $uninstallStr.Split(' ')[0]
             }
-            Remove-ItemProperty -Path "HKU:\$sid\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" `
-                -Name 'OneDrive' -ErrorAction SilentlyContinue
-            Remove-Item -Path $regPath -Force -ErrorAction SilentlyContinue
+            if ($exePath -and (Test-Path $exePath)) {
+                $exePaths.Add($exePath) | Out-Null
+            }
+        }
+        Remove-ItemProperty `
+            -Path "HKU:\$sid\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" `
+            -Name 'OneDrive' `
+            -ErrorAction SilentlyContinue
+        Remove-Item -Path $regPath -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    foreach ($f in $fallbackPaths) {
+        if (Test-Path $f) {
+            $exePaths.Add($f) | Out-Null
         }
     }
-
-    $allPaths = @($setupPaths) + $fallbackPaths | Select-Object -Unique
-
-    foreach ($p in $allPaths) {
-        if (Test-Path $p) {
-            Write-Step "uninstalling onedrive from $p"
-            Start-Process -FilePath $p -ArgumentList '/uninstall' -Wait -NoNewWindow -PassThru | Out-Null
-        }
+    $exePaths = $exePaths | Select-Object -Unique
+    foreach ($exe in $exePaths) {
+        try {
+            Write-Step "uninstalling onedrive → $exe"
+            Start-Process -FilePath $exe -ArgumentList '/uninstall' -Wait -NoNewWindow | Out-Null
+        } catch {}
     }
-
-    # kullanici klasorlerinden kalıntı temizle
+    try {
+        Get-AppxProvisionedPackage -Online | Where-Object {
+            $_.DisplayName -like '*OneDrive*'
+        } | ForEach-Object {
+            Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName -ErrorAction SilentlyContinue
+        }
+    } catch {}
+    try {
+        Get-AppxPackage -AllUsers *OneDrive* | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue
+    } catch {}
     Get-ChildItem "$env:SystemDrive\Users" -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-        $odPath  = Join-Path $_.FullName 'AppData\Local\Microsoft\OneDrive'
-        $lnkPath = Join-Path $_.FullName 'AppData\Roaming\Microsoft\Windows\Start Menu\Programs\OneDrive.lnk'
-        if (Test-Path $odPath)  { Remove-Item $odPath  -Recurse -Force -ErrorAction SilentlyContinue }
-        if (Test-Path $lnkPath) { Remove-Item $lnkPath -Force   -ErrorAction SilentlyContinue }
+        $paths = @(
+            "$($_.FullName)\OneDrive",
+            "$($_.FullName)\AppData\Local\Microsoft\OneDrive",
+            "$($_.FullName)\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\OneDrive.lnk"
+        )
+        foreach ($p in $paths) {
+            if (Test-Path $p) {
+                Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
     }
 
-    # explorer sidebar'dan kaldır
-    [Microsoft.Win32.Registry]::SetValue(
-        'HKEY_CLASSES_ROOT\CLSID\{018D5C66-4533-4307-9B53-224DE2ED1FE6}',
-        'System.IsPinnedToNameSpaceTree', 0, [Microsoft.Win32.RegistryValueKind]::DWord)
+    $clsid = '{018D5C66-4533-4307-9B53-224DE2ED1FE6}'
+    try {
+        New-Item -Path "HKCR:\CLSID\$clsid" -Force | Out-Null
+        Set-ItemProperty -Path "HKCR:\CLSID\$clsid" -Name 'System.IsPinnedToNameSpaceTree' -Value 0 -Type DWord
+    } catch {}
+    try {
+        New-Item -Path "HKCR:\Wow6432Node\CLSID\$clsid" -Force | Out-Null
+        Set-ItemProperty -Path "HKCR:\Wow6432Node\CLSID\$clsid" -Name 'System.IsPinnedToNameSpaceTree' -Value 0 -Type DWord
+    } catch {}
+    Write-Step 'onedrive removal complete'
 }
 
 Remove-OneDrive
