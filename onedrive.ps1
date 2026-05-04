@@ -153,11 +153,11 @@ Write-Step 'copilot appx removed' 'ok'
 Write-Step 'disabling copilot via registry & policies'
 
 # delete configuration keys
-Reg.exe delete 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsAI\LastConfiguration' /f *>$null
-Reg.exe delete 'HKCU\Software\Microsoft\Windows\Shell\Copilot' /v 'CopilotLogonTelemetryTime' /f *>$null
-Reg.exe delete 'HKCU\Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\SystemAppData\Microsoft.Copilot_8wekyb3d8bbwe\Copilot.StartupTaskId' /f *>$null
-Reg.exe delete 'HKCU\Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\SystemAppData\Microsoft.MicrosoftOfficeHub_8wekyb3d8bbwe\WebViewHostStartupId' /f *>$null
-Reg.exe delete 'HKCU\Software\Microsoft\Copilot' /v 'WakeApp' /f *>$null
+# Reg.exe delete 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsAI\LastConfiguration' /f *>$null
+# Reg.exe delete 'HKCU\Software\Microsoft\Windows\Shell\Copilot' /v 'CopilotLogonTelemetryTime' /f *>$null
+# Reg.exe delete 'HKCU\Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\SystemAppData\Microsoft.Copilot_8wekyb3d8bbwe\Copilot.StartupTaskId' /f *>$null
+# Reg.exe delete 'HKCU\Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\SystemAppData\Microsoft.MicrosoftOfficeHub_8wekyb3d8bbwe\WebViewHostStartupId' /f *>$null
+# Reg.exe delete 'HKCU\Software\Microsoft\Copilot' /v 'WakeApp' /f *>$null
 
 # ai windows policies
 $aiPolicyValues = @(
@@ -176,56 +176,56 @@ $aiPolicyValues = @(
 )
 
 foreach ($p in $aiPolicyValues) {
-    Reg.exe add "$($p.Hive)\$($p.Key)" /v "$($p.Name)" /t REG_DWORD /d $p.Val /f *>$null
+    # Reg.exe add "$($p.Hive)\$($p.Key)" /v "$($p.Name)" /t REG_DWORD /d $p.Val /f *>$null
 }
 
 foreach ($hive in @('HKLM','HKCU')) {
-    Reg.exe add "$hive\SOFTWARE\Microsoft\Windows\Shell\Copilot\BingChat" /v 'IsUserEligible'      /t REG_DWORD /d 0 /f *>$null
-    Reg.exe add "$hive\SOFTWARE\Microsoft\Windows\Shell\Copilot"          /v 'IsCopilotAvailable'  /t REG_DWORD /d 0 /f *>$null
-    Reg.exe add "$hive\SOFTWARE\Microsoft\Windows\Shell\Copilot"          /v 'CopilotDisabledReason' /t REG_SZ /d 'FeatureIsDisabled' /f *>$null
+    # Reg.exe add "$hive\SOFTWARE\Microsoft\Windows\Shell\Copilot\BingChat" /v 'IsUserEligible'      /t REG_DWORD /d 0 /f *>$null
+    # Reg.exe add "$hive\SOFTWARE\Microsoft\Windows\Shell\Copilot"          /v 'IsCopilotAvailable'  /t REG_DWORD /d 0 /f *>$null
+    # Reg.exe add "$hive\SOFTWARE\Microsoft\Windows\Shell\Copilot"          /v 'CopilotDisabledReason' /t REG_SZ /d 'FeatureIsDisabled' /f *>$null
 }
 
 # taskbar & pin
-Reg.exe add 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'       /v 'ShowCopilotButton' /t REG_DWORD /d 0 /f *>$null
-Reg.exe add 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'       /v 'TaskbarCompanion'  /t REG_DWORD /d 0 /f *>$null
-Reg.exe add 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Taskband\AuxilliaryPins' /v 'CopilotPWAPin' /t REG_DWORD /d 0 /f *>$null
-Reg.exe add 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Taskband\AuxilliaryPins' /v 'RecallPin'     /t REG_DWORD /d 0 /f *>$null
-Reg.exe add 'HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsCopilot'          /v 'AllowCopilotRuntime' /t REG_DWORD /d 0 /f *>$null
+# Reg.exe add 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'       /v 'ShowCopilotButton' /t REG_DWORD /d 0 /f *>$null
+# Reg.exe add 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'       /v 'TaskbarCompanion'  /t REG_DWORD /d 0 /f *>$null
+# Reg.exe add 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Taskband\AuxilliaryPins' /v 'CopilotPWAPin' /t REG_DWORD /d 0 /f *>$null
+# Reg.exe add 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Taskband\AuxilliaryPins' /v 'RecallPin'     /t REG_DWORD /d 0 /f *>$null
+# Reg.exe add 'HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsCopilot'          /v 'AllowCopilotRuntime' /t REG_DWORD /d 0 /f *>$null
 
 # mic & ai model access deny
-Reg.exe add 'HKCU\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone\Microsoft.Copilot_8wekyb3d8bbwe' /v 'Value' /t REG_SZ /d 'Deny' /f *>$null
-Reg.exe add 'HKCU\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\systemAIModels' /v 'Value' /t REG_SZ /d 'Deny' /f *>$null
-Reg.exe add 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\generativeAI'  /v 'Value' /t REG_SZ /d 'Deny' /f *>$null
-Reg.exe add 'HKLM\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy' /v 'LetAppsAccessGenerativeAI'   /t REG_DWORD /d 2 /f *>$null
-Reg.exe add 'HKLM\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy' /v 'LetAppsAccessSystemAIModels' /t REG_DWORD /d 2 /f *>$null
+# Reg.exe add 'HKCU\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone\Microsoft.Copilot_8wekyb3d8bbwe' /v 'Value' /t REG_SZ /d 'Deny' /f *>$null
+# Reg.exe add 'HKCU\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\systemAIModels' /v 'Value' /t REG_SZ /d 'Deny' /f *>$null
+# Reg.exe add 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\generativeAI'  /v 'Value' /t REG_SZ /d 'Deny' /f *>$null
+# Reg.exe add 'HKLM\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy' /v 'LetAppsAccessGenerativeAI'   /t REG_DWORD /d 2 /f *>$null
+# Reg.exe add 'HKLM\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy' /v 'LetAppsAccessSystemAIModels' /t REG_DWORD /d 2 /f *>$null
 
 # background access deny
-Reg.exe add 'HKCU\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications\Microsoft.Copilot_8wekyb3d8bbwe' /v 'DisabledByUser' /t REG_DWORD /d 1 /f *>$null
-Reg.exe add 'HKCU\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications\Microsoft.Copilot_8wekyb3d8bbwe' /v 'Disabled'       /t REG_DWORD /d 1 /f *>$null
-Reg.exe add 'HKCU\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications\Microsoft.MicrosoftOfficeHub_8wekyb3d8bbwe' /v 'DisabledByUser' /t REG_DWORD /d 1 /f *>$null
-Reg.exe add 'HKCU\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications\Microsoft.MicrosoftOfficeHub_8wekyb3d8bbwe' /v 'Disabled'       /t REG_DWORD /d 1 /f *>$null
+# Reg.exe add 'HKCU\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications\Microsoft.Copilot_8wekyb3d8bbwe' /v 'DisabledByUser' /t REG_DWORD /d 1 /f *>$null
+# Reg.exe add 'HKCU\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications\Microsoft.Copilot_8wekyb3d8bbwe' /v 'Disabled'       /t REG_DWORD /d 1 /f *>$null
+# Reg.exe add 'HKCU\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications\Microsoft.MicrosoftOfficeHub_8wekyb3d8bbwe' /v 'DisabledByUser' /t REG_DWORD /d 1 /f *>$null
+# Reg.exe add 'HKCU\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications\Microsoft.MicrosoftOfficeHub_8wekyb3d8bbwe' /v 'Disabled'       /t REG_DWORD /d 1 /f *>$null
 
 # velocity feature overrides
-Reg.exe add 'HKLM\SYSTEM\ControlSet001\Control\FeatureManagement\Overrides\8\1853569164' /v 'EnabledState' /t REG_DWORD /d 1 /f *>$null
-Reg.exe add 'HKLM\SYSTEM\ControlSet001\Control\FeatureManagement\Overrides\8\4098520719' /v 'EnabledState' /t REG_DWORD /d 1 /f *>$null
-Reg.exe add 'HKLM\SYSTEM\ControlSet001\Control\FeatureManagement\Overrides\8\929719951'  /v 'EnabledState' /t REG_DWORD /d 1 /f *>$null
-Reg.exe add 'HKLM\SYSTEM\ControlSet001\Control\FeatureManagement\Overrides\8\2283032206' /v 'EnabledState' /t REG_DWORD /d 1 /f *>$null
-Reg.exe add 'HKLM\SYSTEM\ControlSet001\Control\FeatureManagement\Overrides\8\502943886'  /v 'EnabledState' /t REG_DWORD /d 1 /f *>$null
-Reg.exe add 'HKLM\SYSTEM\ControlSet001\Control\FeatureManagement\Overrides\8\3389499533' /v 'EnabledState' /t REG_DWORD /d 1 /f *>$null
-Reg.exe add 'HKLM\SYSTEM\ControlSet001\Control\FeatureManagement\Overrides\8\4027803789' /v 'EnabledState' /t REG_DWORD /d 1 /f *>$null
-Reg.exe add 'HKLM\SYSTEM\ControlSet001\Control\FeatureManagement\Overrides\8\450471565'  /v 'EnabledState' /t REG_DWORD /d 1 /f *>$null
-Reg.exe add 'HKLM\SYSTEM\ControlSet001\Control\FeatureManagement\Overrides\8\1646260367' /v 'EnabledState' /t REG_DWORD /d 2 /f *>$null
+# Reg.exe add 'HKLM\SYSTEM\ControlSet001\Control\FeatureManagement\Overrides\8\1853569164' /v 'EnabledState' /t REG_DWORD /d 1 /f *>$null
+# Reg.exe add 'HKLM\SYSTEM\ControlSet001\Control\FeatureManagement\Overrides\8\4098520719' /v 'EnabledState' /t REG_DWORD /d 1 /f *>$null
+# Reg.exe add 'HKLM\SYSTEM\ControlSet001\Control\FeatureManagement\Overrides\8\929719951'  /v 'EnabledState' /t REG_DWORD /d 1 /f *>$null
+# Reg.exe add 'HKLM\SYSTEM\ControlSet001\Control\FeatureManagement\Overrides\8\2283032206' /v 'EnabledState' /t REG_DWORD /d 1 /f *>$null
+# Reg.exe add 'HKLM\SYSTEM\ControlSet001\Control\FeatureManagement\Overrides\8\502943886'  /v 'EnabledState' /t REG_DWORD /d 1 /f *>$null
+# Reg.exe add 'HKLM\SYSTEM\ControlSet001\Control\FeatureManagement\Overrides\8\3389499533' /v 'EnabledState' /t REG_DWORD /d 1 /f *>$null
+# Reg.exe add 'HKLM\SYSTEM\ControlSet001\Control\FeatureManagement\Overrides\8\4027803789' /v 'EnabledState' /t REG_DWORD /d 1 /f *>$null
+# Reg.exe add 'HKLM\SYSTEM\ControlSet001\Control\FeatureManagement\Overrides\8\450471565'  /v 'EnabledState' /t REG_DWORD /d 1 /f *>$null
+# Reg.exe add 'HKLM\SYSTEM\ControlSet001\Control\FeatureManagement\Overrides\8\1646260367' /v 'EnabledState' /t REG_DWORD /d 2 /f *>$null
 
 # .copilot file extension & uri handlers
-Reg.exe delete 'HKCU\Software\Classes\.copilot' /f *>$null
-Reg.exe delete 'HKCR\.copilot'                  /f *>$null
+# Reg.exe delete 'HKCU\Software\Classes\.copilot' /f *>$null
+# Reg.exe delete 'HKCR\.copilot'                  /f *>$null
 @('ms-office-ai','ms-copilot','ms-clicktodo') | ForEach-Object {
     Remove-Item "Registry::HKEY_CLASSES_ROOT\$_" -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 # copilot update paths in edge
-Reg.exe delete 'HKLM\SOFTWARE\Microsoft\EdgeUpdate'            /v 'CopilotUpdatePath' /f *>$null
-Reg.exe delete 'HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate' /v 'CopilotUpdatePath' /f *>$null
+# Reg.exe delete 'HKLM\SOFTWARE\Microsoft\EdgeUpdate'            /v 'CopilotUpdatePath' /f *>$null
+# Reg.exe delete 'HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate' /v 'CopilotUpdatePath' /f *>$null
 
 # hide ai components in settings
 $existing = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer' -Name 'SettingsPageVisibility' -ErrorAction SilentlyContinue).SettingsPageVisibility
@@ -237,34 +237,34 @@ if ($existing -and $existing -notlike '*aicomponents*') {
 }
 
 # paint ai disable
-Reg.exe add 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint' /v 'DisableImageCreator'   /t REG_DWORD /d 1 /f *>$null
-Reg.exe add 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint' /v 'DisableCocreator'      /t REG_DWORD /d 1 /f *>$null
-Reg.exe add 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint' /v 'DisableGenerativeFill' /t REG_DWORD /d 1 /f *>$null
+# Reg.exe add 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint' /v 'DisableImageCreator'   /t REG_DWORD /d 1 /f *>$null
+# Reg.exe add 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint' /v 'DisableCocreator'      /t REG_DWORD /d 1 /f *>$null
+# Reg.exe add 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint' /v 'DisableGenerativeFill' /t REG_DWORD /d 1 /f *>$null
 
 # notepad ai disable
-Reg.exe add 'HKLM\SOFTWARE\Policies\WindowsNotepad' /v 'DisableAIFeatures' /t REG_DWORD /d 1 /f *>$null
+# Reg.exe add 'HKLM\SOFTWARE\Policies\WindowsNotepad' /v 'DisableAIFeatures' /t REG_DWORD /d 1 /f *>$null
 
 # voice access — disable
-Reg.exe add 'HKCU\Software\Microsoft\VoiceAccess' /v 'RunningState'   /t REG_DWORD /d 0 /f *>$null
-Reg.exe add 'HKCU\Software\Microsoft\VoiceAccess' /v 'TextCorrection' /t REG_DWORD /d 1 /f *>$null
+# Reg.exe add 'HKCU\Software\Microsoft\VoiceAccess' /v 'RunningState'   /t REG_DWORD /d 0 /f *>$null
+# Reg.exe add 'HKCU\Software\Microsoft\VoiceAccess' /v 'TextCorrection' /t REG_DWORD /d 1 /f *>$null
 
 # apply to default user hive
 [GC]::Collect()
-Reg.exe unload 'HKU\DefaultUser' *>$null
+# Reg.exe unload 'HKU\DefaultUser' *>$null
 try {
-    Reg.exe load 'HKU\DefaultUser' "$env:SystemDrive\Users\Default\NTUSER.DAT" *>$null
-    Reg.exe add 'HKU\DefaultUser\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot'  /v 'TurnOffWindowsCopilot'  /t REG_DWORD /d 1 /f *>$null
-    Reg.exe add 'HKU\DefaultUser\SOFTWARE\Policies\Microsoft\Windows\WindowsAI'       /v 'DisableAIDataAnalysis'  /t REG_DWORD /d 1 /f *>$null
-    Reg.exe add 'HKU\DefaultUser\SOFTWARE\Policies\Microsoft\Windows\WindowsAI'       /v 'AllowRecallEnablement'  /t REG_DWORD /d 0 /f *>$null
-    Reg.exe add 'HKU\DefaultUser\SOFTWARE\Policies\Microsoft\Windows\WindowsAI'       /v 'DisableClickToDo'       /t REG_DWORD /d 1 /f *>$null
-    Reg.exe add 'HKU\DefaultUser\SOFTWARE\Policies\Microsoft\Windows\WindowsAI'       /v 'TurnOffSavingSnapshots' /t REG_DWORD /d 1 /f *>$null
-    Reg.exe add 'HKU\DefaultUser\SOFTWARE\Microsoft\Windows\Shell\Copilot'            /v 'IsCopilotAvailable'     /t REG_DWORD /d 0 /f *>$null
-    Reg.exe add 'HKU\DefaultUser\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' /v 'ShowCopilotButton' /t REG_DWORD /d 0 /f *>$null
-    Reg.exe add 'HKU\DefaultUser\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' /v 'TaskbarCompanion'  /t REG_DWORD /d 0 /f *>$null
-    Reg.exe add 'HKU\DefaultUser\Software\Microsoft\Windows\CurrentVersion\Explorer\Taskband\AuxilliaryPins' /v 'CopilotPWAPin' /t REG_DWORD /d 0 /f *>$null
-    Reg.exe add 'HKU\DefaultUser\Software\Microsoft\Windows\CurrentVersion\Explorer\Taskband\AuxilliaryPins' /v 'RecallPin'     /t REG_DWORD /d 0 /f *>$null
+    # Reg.exe load 'HKU\DefaultUser' "$env:SystemDrive\Users\Default\NTUSER.DAT" *>$null
+    # Reg.exe add 'HKU\DefaultUser\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot'  /v 'TurnOffWindowsCopilot'  /t REG_DWORD /d 1 /f *>$null
+    # Reg.exe add 'HKU\DefaultUser\SOFTWARE\Policies\Microsoft\Windows\WindowsAI'       /v 'DisableAIDataAnalysis'  /t REG_DWORD /d 1 /f *>$null
+    # Reg.exe add 'HKU\DefaultUser\SOFTWARE\Policies\Microsoft\Windows\WindowsAI'       /v 'AllowRecallEnablement'  /t REG_DWORD /d 0 /f *>$null
+    # Reg.exe add 'HKU\DefaultUser\SOFTWARE\Policies\Microsoft\Windows\WindowsAI'       /v 'DisableClickToDo'       /t REG_DWORD /d 1 /f *>$null
+    # Reg.exe add 'HKU\DefaultUser\SOFTWARE\Policies\Microsoft\Windows\WindowsAI'       /v 'TurnOffSavingSnapshots' /t REG_DWORD /d 1 /f *>$null
+    # Reg.exe add 'HKU\DefaultUser\SOFTWARE\Microsoft\Windows\Shell\Copilot'            /v 'IsCopilotAvailable'     /t REG_DWORD /d 0 /f *>$null
+    # Reg.exe add 'HKU\DefaultUser\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' /v 'ShowCopilotButton' /t REG_DWORD /d 0 /f *>$null
+    # Reg.exe add 'HKU\DefaultUser\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' /v 'TaskbarCompanion'  /t REG_DWORD /d 0 /f *>$null
+    # Reg.exe add 'HKU\DefaultUser\Software\Microsoft\Windows\CurrentVersion\Explorer\Taskband\AuxilliaryPins' /v 'CopilotPWAPin' /t REG_DWORD /d 0 /f *>$null
+    # Reg.exe add 'HKU\DefaultUser\Software\Microsoft\Windows\CurrentVersion\Explorer\Taskband\AuxilliaryPins' /v 'RecallPin'     /t REG_DWORD /d 0 /f *>$null
 } catch {}
-Reg.exe unload 'HKU\DefaultUser' *>$null
+# Reg.exe unload 'HKU\DefaultUser' *>$null
 
 # copilot nudge registry keys (TI required)
 Write-Step 'removing copilot nudge registry keys'
@@ -282,11 +282,11 @@ foreach ($k in $nudgeKeys) {
 }
 
 # shell update packages cleanup
-Reg.exe delete 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell\Update\Packages\Components' /v 'AIX'           /f *>$null
-Reg.exe delete 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell\Update\Packages\Components' /v 'CopilotNudges' /f *>$null
-Reg.exe delete 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell\Update\Packages\Components' /v 'AIContext'     /f *>$null
-Reg.exe delete 'HKCU\Software\Microsoft\Windows\CurrentVersion\App Paths\ActionsMcpHost.exe' /f *>$null
-Reg.exe delete 'HKLM\Software\Microsoft\Windows\CurrentVersion\App Paths\ActionsMcpHost.exe' /f *>$null
+# Reg.exe delete 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell\Update\Packages\Components' /v 'AIX'           /f *>$null
+# Reg.exe delete 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell\Update\Packages\Components' /v 'CopilotNudges' /f *>$null
+# Reg.exe delete 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell\Update\Packages\Components' /v 'AIContext'     /f *>$null
+# Reg.exe delete 'HKCU\Software\Microsoft\Windows\CurrentVersion\App Paths\ActionsMcpHost.exe' /f *>$null
+# Reg.exe delete 'HKLM\Software\Microsoft\Windows\CurrentVersion\App Paths\ActionsMcpHost.exe' /f *>$null
 
 # recall tasks
 Write-Step 'removing recall scheduled tasks'
