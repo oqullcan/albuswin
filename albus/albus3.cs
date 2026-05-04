@@ -1,6 +1,14 @@
 // ══════════════════════════════════════════════════════════════════════════════
-//  AlbusB  v1.0
+//  AlbusB  v1.1
 //  precision system latency service — fully automatic, zero manual steps
+//
+//  fixes v1.0 → v1.1:
+//    · AdjustTokenPrivileges / OpenProcessToken moved from kernel32 → advapi32
+//    · SetProcessInformation2 replaced with EntryPoint-mapped real API call
+//    · D3DKMTSetProcessSchedulingPriority now loaded dynamically via
+//      GetProcAddress (reliable across all Win10/11 builds)
+//    · GlitchDetector: removed unused prevPadding (CS0219 warning)
+//    · Large page failure message now explains secpol.msc remediation
 //
 //  layers:
 //    · timer        — 0.5ms kernel timer resolution, guard + watchdog
@@ -50,11 +58,11 @@ using System.Management;
 using System.Text.RegularExpressions;
 using Microsoft.Win32;
 
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: AssemblyVersion("1.1.0.0")]
+[assembly: AssemblyFileVersion("1.1.0.0")]
 [assembly: AssemblyProduct("AlbusB")]
 [assembly: AssemblyTitle("AlbusB")]
-[assembly: AssemblyDescription("precision system latency service v1.0")]
+[assembly: AssemblyDescription("precision system latency service v1.1")]
 
 namespace AlbusB
 {
@@ -725,10 +733,16 @@ namespace AlbusB
         {
             Safe.Run("gpu_prio", () =>
             {
-                int hr = D3DKMTSetProcessSchedulingPriority(
+                EnsureD3DKmt();
+                if (_d3dkmtPrio == null)
+                {
+                    Log.Write("[gpu_prio] D3DKMT unavailable on this system — skipped.", true);
+                    return;
+                }
+                int hr = _d3dkmtPrio(
                     Process.GetCurrentProcess().Handle,
                     D3DKMT_SCHEDULINGPRIORITYCLASS_REALTIME);
-                Log.Write(string.Format("[gpu] d3dkmt realtime (hr=0x{0:X})", hr));
+                Log.Write(string.Format("[gpu] d3dkmt realtime priority set (hr=0x{0:X})", hr));
             });
         }
 
@@ -939,11 +953,16 @@ namespace AlbusB
                     tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
 
                     AdjustTokenPrivileges(hToken, false, ref tp, 0, IntPtr.Zero, IntPtr.Zero);
+                    // AdjustTokenPrivileges always returns true even on partial failure —
+                    // the real result is in GetLastWin32Error: 0 = success, 1300 = not held
                     int err = Marshal.GetLastWin32Error();
                     if (err == 0)
                         Log.Write("[mem] SeLockMemoryPrivilege acquired — large pages enabled.");
                     else
-                        Log.Write(string.Format("[mem] SeLockMemoryPrivilege failed (err={0}), continuing.", err));
+                        Log.Write(string.Format(
+                            "[mem] SeLockMemoryPrivilege not held (err={0}) — " +
+                            "grant it via secpol.msc → Local Policies → User Rights → Lock pages in memory.",
+                            err), true);
                 }
                 finally { CloseHandle(hToken); }
             });
@@ -955,7 +974,7 @@ namespace AlbusB
             {
                 MEMORY_PRIORITY_INFORMATION mpi;
                 mpi.MemoryPriority = MEMORY_PRIORITY_NORMAL;
-                SetProcessInformation2(Process.GetCurrentProcess().Handle,
+                SetProcessInformationMemPrio(Process.GetCurrentProcess().Handle,
                     ProcessMemoryPriority, ref mpi,
                     Marshal.SizeOf(typeof(MEMORY_PRIORITY_INFORMATION)));
                 Log.Write("[mem] memory priority set to high.");
@@ -1501,9 +1520,8 @@ namespace AlbusB
         //      based on elapsed time to detect real underruns vs. silence.
         void GlitchDetector(IAudioClient3 client)
         {
-            uint prevPadding        = uint.MaxValue;
-            int  consecutiveZero    = 0;
-            long lastNonZeroTick    = Stopwatch.GetTimestamp();
+            int  consecutiveZero = 0;
+            long lastNonZeroTick = Stopwatch.GetTimestamp();
 
             while (!stopEvent.IsSet)
             {
@@ -1516,17 +1534,17 @@ namespace AlbusB
                     if (padding == 0)
                     {
                         consecutiveZero++;
-                        long elapsed = Stopwatch.GetTimestamp() - lastNonZeroTick;
+                        long   elapsed   = Stopwatch.GetTimestamp() - lastNonZeroTick;
                         double elapsedMs = (elapsed * 1000.0) / Stopwatch.Frequency;
 
-                        // Only flag as glitch if buffer stays empty for > 100 ms
-                        // (avoids false positives during intentional silence)
+                        // Only flag as glitch after >100 ms of continuous silence —
+                        // avoids false positives during normal intentional silence
                         if (consecutiveZero >= 2 && elapsedMs > 100.0)
                         {
                             Interlocked.Increment(ref audioGlitchCount);
                             Log.Write(string.Format(
                                 "[audio] glitch detected (underrun, silent={0:F0}ms).", elapsedMs));
-                            consecutiveZero  = 0;       // reset to avoid spam per stall event
+                            consecutiveZero  = 0;
                             lastNonZeroTick  = Stopwatch.GetTimestamp();
                         }
                     }
@@ -1535,7 +1553,6 @@ namespace AlbusB
                         consecutiveZero = 0;
                         lastNonZeroTick = Stopwatch.GetTimestamp();
                     }
-                    prevPadding = padding;
                 });
             }
         }
@@ -1617,8 +1634,6 @@ namespace AlbusB
         static extern IntPtr CreateWaitableTimerExW(IntPtr a, string n, uint f, uint acc);
         [DllImport("kernel32.dll")]
         static extern bool SetProcessInformation(IntPtr h, int cls, ref PROCESS_POWER_THROTTLING info, int sz);
-        [DllImport("kernel32.dll")]
-        static extern bool SetProcessInformation2(IntPtr h, int cls, ref MEMORY_PRIORITY_INFORMATION info, int sz);
         [DllImport("kernel32.dll")] static extern uint   SetThreadExecutionState(uint f);
         [DllImport("kernel32.dll")]
         static extern bool SetProcessWorkingSetSizeEx(IntPtr h, UIntPtr min, UIntPtr max, uint f);
@@ -1630,16 +1645,49 @@ namespace AlbusB
         static extern IntPtr VirtualAllocExNuma(IntPtr proc, IntPtr addr, UIntPtr sz,
             uint allocType, uint protect, uint node);
         [DllImport("kernel32.dll")] static extern bool   VirtualFree(IntPtr addr, UIntPtr sz, uint freeType);
-        [DllImport("kernel32.dll")] static extern bool   OpenProcessToken(IntPtr h, uint acc, out IntPtr tok);
-        [DllImport("kernel32.dll")] static extern bool   AdjustTokenPrivileges(IntPtr tok, bool dis,
+        // FIX 1: OpenProcessToken + AdjustTokenPrivileges are in advapi32, NOT kernel32
+        [DllImport("advapi32.dll", SetLastError = true)]
+        static extern bool OpenProcessToken(IntPtr h, uint acc, out IntPtr tok);
+        [DllImport("advapi32.dll", SetLastError = true)]
+        static extern bool AdjustTokenPrivileges(IntPtr tok, bool dis,
             ref TOKEN_PRIVILEGES newState, uint bufLen, IntPtr prev, IntPtr retLen);
         [DllImport("advapi32.dll", CharSet = CharSet.Unicode)]
         static extern bool LookupPrivilegeValue(string sys, string name, out LUID luid);
 
+        // FIX 2: SetProcessInformation2 does not exist — use EntryPoint to reuse the real API
+        //        with the MEMORY_PRIORITY_INFORMATION overload
+        [DllImport("kernel32.dll", EntryPoint = "SetProcessInformation", SetLastError = true)]
+        static extern bool SetProcessInformationMemPrio(
+            IntPtr h, int cls, ref MEMORY_PRIORITY_INFORMATION info, int sz);
+
+        // FIX 3: D3DKMTSetProcessSchedulingPriority is not reliably exported by name on all
+        //        Windows builds — load it at runtime via GetProcAddress instead
+        [DllImport("kernel32.dll", CharSet = CharSet.Ansi,  SetLastError = true)]
+        static extern IntPtr GetProcAddress(IntPtr hModule, string proc);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        static extern IntPtr LoadLibraryW(string path);
+
+        delegate int D3DKMTPrioDelegate(IntPtr hProcess, int priority);
+        static D3DKMTPrioDelegate _d3dkmtPrio;   // cached after first load
+
+        static void EnsureD3DKmt()
+        {
+            if (_d3dkmtPrio != null) return;
+            Safe.Run("d3dkmt_load", () =>
+            {
+                IntPtr hGdi = LoadLibraryW("gdi32.dll");
+                if (hGdi == IntPtr.Zero) return;
+                IntPtr fn = GetProcAddress(hGdi, "D3DKMTSetProcessSchedulingPriority");
+                if (fn == IntPtr.Zero) return;
+                _d3dkmtPrio = (D3DKMTPrioDelegate)
+                    Marshal.GetDelegateForFunctionPointer(fn, typeof(D3DKMTPrioDelegate));
+                Log.Write("[gpu] D3DKMTSetProcessSchedulingPriority resolved dynamically.");
+            });
+        }
+
         [DllImport("psapi.dll")]    static extern int    EmptyWorkingSet(IntPtr h);
         [DllImport("avrt.dll")]     static extern IntPtr AvSetMmThreadCharacteristics(string t, ref uint i);
         [DllImport("ole32.dll")]    static extern int    CoInitializeEx(IntPtr p, uint c);
-        [DllImport("gdi32.dll")]    static extern int    D3DKMTSetProcessSchedulingPriority(IntPtr h, int p);
         [DllImport("powrprof.dll")]
         static extern uint CallNtPowerInformation(int lvl, IntPtr ib, uint il, IntPtr ob, uint ol);
         [DllImport("qwave.dll")]    static extern bool   QOSCreateHandle(ref QOS_VERSION ver, out IntPtr h);
