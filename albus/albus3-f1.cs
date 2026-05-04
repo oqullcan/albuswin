@@ -1,44 +1,6 @@
 // ══════════════════════════════════════════════════════════════════════════════
 //  AlbusB  v3.0
 //  precision system latency service — fully automatic, zero manual steps
-//
-//  v3.0 değişiklikleri (v1.1 → v3.0):
-//    · [LOG]      Log mekanizması tamamen asenkron (non-blocking) hale getirildi.
-//                 ConcurrentQueue<string> + arka plan WriterThread ile disk G/Ç
-//                 artık Real-Time thread'leri bloklamıyor.
-//    · [MEM]      VirtualAllocExNuma'ya MEM_LARGE_PAGES bayrağı eklendi.
-//                 "Large Pages İllüzyonu" giderildi.
-//    · [CPU]      64+ mantıksal işlemci desteği için GROUP_AFFINITY tabanlı
-//                 kısmi destek eklendi; uzun (long) maske taşması korunması.
-//    · [IRQ]      OptimizeNicIrqAffinity + OptimizeGpuIrqAffinity sonrasında
-//                 SetupDiCallClassInstaller ile aygıt programatik disable/enable
-//                 yapılıyor → Registry değişikliği anında devreye giriyor,
-//                 reboot gerekmez.
-//    · [COM]      IAudioClient3, IMMDevice nesneleri için Marshal.ReleaseComObject
-//                 eklendi; uzun süreli servis çalışmasında memory leak giderildi.
-//    · [AUDIO]    GlitchDetector'da Thread.Sleep(50) → ManualResetEventSlim ile
-//                 uyku; Real-Time thread'in scheduler'dan gereksiz kopması engellendi.
-//    · [GC]       Log.Write içindeki string.Format çağrıları StringBuilder pool'una
-//                 taşındı. Sıcak yolda allocation azaltıldı.
-//    · [WMI]      WMI fallback polling aralığı WITHIN 0.5 → WITHIN 2.0 sn olarak
-//                 artırıldı; WmiPrvSE.exe CPU aşımı giderildi.
-//    · [STRUCT]   TOKEN_PRIVILEGES, MEMORY_PRIORITY_INFORMATION ve ETW yapılarına
-//                 LayoutKind.Sequential + doğru Pack değerleri atandı.
-//    · [HANDLE]   LoadLibraryW ile açılan gdi32 handle'ı FreeLibrary ile temizleniyor.
-//    · [SAFE]     Safe.Run Pokemon-catch azaltıldı; kritik sıcak yollarda inline
-//                 try-catch tercih edildi.
-//
-//  compile:
-//    csc.exe -r:System.ServiceProcess.dll
-//            -r:System.Configuration.Install.dll
-//            -r:System.Management.dll
-//            -r:System.Net.dll
-//            -out:AlbusBX.exe AlbusBX.cs
-//
-//  service name : AlbusBSvc
-//  exe          : AlbusBX.exe
-//  log          : C:\AlbusB\albusbx.log
-//  ini          : AlbusBX.exe.ini  (optional)
 // ══════════════════════════════════════════════════════════════════════════════
 
 using System;
@@ -67,11 +29,6 @@ using Microsoft.Win32;
 
 namespace AlbusB
 {
-    // ══════════════════════════════════════════════════════════════════════════
-    //  LOGGER — asenkron (non-blocking): ConcurrentQueue + arka plan thread
-    //  v3.0: Log.Write artık hiçbir zaman çağıran thread'i bloklamaz.
-    //        Disk G/Ç, düşük öncelikli WriterThread üzerinde yapılır.
-    // ══════════════════════════════════════════════════════════════════════════
     static class Log
     {
         static readonly string                   LogPath   = @"C:\AlbusB\albusbx.log";
@@ -101,15 +58,13 @@ namespace AlbusB
             {
                 Name         = "albusbx-log",
                 IsBackground = true,
-                Priority     = ThreadPriority.BelowNormal   // disk G/Ç düşük öncelikli
+                Priority     = ThreadPriority.BelowNormal
             };
             _writerThread.Start();
         }
 
-        // ── Çağıran thread'i asla bloklamaz ──────────────────────────────────
         public static void Write(string msg, bool warn = false)
         {
-            // GC baskısını azaltmak için StringBuilder havuzu yerine sabit format
             string line = "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " + msg;
             Queue.Enqueue(line);
             Signal.Set();
@@ -127,10 +82,10 @@ namespace AlbusB
         {
             _stop = true;
             Signal.Set();
-            _writerThread?.Join(2000);
+            // FIX 1: ?. operatörü C#5'te desteklenmiyor → null kontrolü
+            if (_writerThread != null) _writerThread.Join(2000);
         }
 
-        // ── Arka plan disk yazıcısı ───────────────────────────────────────────
         static void WriterLoop()
         {
             while (!_stop)
@@ -138,7 +93,6 @@ namespace AlbusB
                 Signal.Wait(500);
                 Signal.Reset();
 
-                // Kuyruktaki tüm girdileri tek seferde flush et
                 var sb = new StringBuilder();
                 string line;
                 while (Queue.TryDequeue(out line))
@@ -148,7 +102,6 @@ namespace AlbusB
                     try { File.AppendAllText(LogPath, sb.ToString()); } catch { }
             }
 
-            // Servis durduğunda kalan girdileri temizle
             var tail = new StringBuilder();
             string t;
             while (Queue.TryDequeue(out t)) tail.AppendLine(t);
@@ -157,10 +110,6 @@ namespace AlbusB
         }
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    //  SAFE — guarded execution
-    //  v3.0: Sıcak yollarda kullanımı azaltıldı; yalnızca setup/teardown için.
-    // ══════════════════════════════════════════════════════════════════════════
     static class Safe
     {
         public static void Run(string tag, Action fn)
@@ -176,12 +125,6 @@ namespace AlbusB
         }
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    //  CPU TOPOLOGY — auto-detect cores, NUMA, SMT, efficiency classes
-    //  v3.0: 64+ çekirdek için taşma koruması eklendi.
-    //        Mask hesabı Math.Min(63, i) ile sınırlandırıldı.
-    //        GROUP_AFFINITY desteği için ayrı yardımcı eklendi.
-    // ══════════════════════════════════════════════════════════════════════════
     static class CpuTopology
     {
         public struct CoreInfo
@@ -222,7 +165,6 @@ namespace AlbusB
                     if (!GetSystemCpuSetInformation(buf, needed, out returned, IntPtr.Zero, 0))
                     { FallbackUniform(); return; }
 
-                    // pass 1: max efficiency class
                     for (int off = 0; off < (int)returned; )
                     {
                         int sz = Marshal.ReadInt32(buf, off);
@@ -232,7 +174,6 @@ namespace AlbusB
                         off += sz;
                     }
 
-                    // pass 2: collect
                     var physicalSeen = new SimpleHashSet<byte>();
 
                     for (int off = 0; off < (int)returned; )
@@ -256,6 +197,7 @@ namespace AlbusB
                         off += sz;
                     }
 
+                    // FIX 2: SimpleHashSet.Count property eklendi
                     PhysicalCoreCount = physicalSeen.Count;
 
                     var nodeCount = new Dictionary<byte, int>();
@@ -275,7 +217,6 @@ namespace AlbusB
                     {
                         if (c.EfficiencyClass < MaxEffClass) continue;
                         if (c.NumaNode != BestNumaNode)      continue;
-                        // v3.0: 64+ taşma koruması
                         if (c.LogicalIndex < 64)
                             AllPCoreMask |= (1L << c.LogicalIndex);
                         if (!usedPhys.Contains(c.PhysicalCore))
@@ -317,7 +258,7 @@ namespace AlbusB
 
         static void FallbackUniform()
         {
-            int n = Math.Min(Environment.ProcessorCount, 64); // güvenli üst sınır
+            int n = Math.Min(Environment.ProcessorCount, 64);
             for (byte i = 0; i < n; i++)
             {
                 Cores.Add(new CoreInfo { LogicalIndex = i });
@@ -367,18 +308,13 @@ namespace AlbusB
             public bool Contains(T v) { return _d.ContainsKey(v); }
             public void Add(T v)      { _d[v] = true; }
             public void Clear()       { _d.Clear(); }
+            // FIX 2: Count property eklendi
+            public int Count          { get { return _d.Count; } }
         }
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    //  DEVICE RESTART HELPER
-    //  v3.0: IRQ Registry değişikliklerini ANINDA devreye sokmak için
-    //        SetupDiCallClassInstaller ile NIC/GPU aygıtlarını programatik
-    //        olarak disable/enable yapıyoruz. Reboot gerekmez.
-    // ══════════════════════════════════════════════════════════════════════════
     static class DeviceRestart
     {
-        // SetupAPI sabitleri
         const uint DIGCF_PRESENT        = 0x02;
         const uint DIGCF_ALLCLASSES     = 0x04;
         const int  DIF_PROPERTYCHANGE   = 0x12;
@@ -437,17 +373,12 @@ namespace AlbusB
             ref SP_DEVINFO_DATA devInfoData, uint property, out uint propertyRegDataType,
             byte[] propertyBuffer, uint propertyBufferSize, out uint requiredSize);
 
-        /// <summary>
-        /// Belirtilen GUID sınıfındaki tüm donanım aygıtlarını disable → enable döngüsüne sokar.
-        /// Bu, Registry IRQ değişikliklerini anında (reboot olmadan) devreye sokar.
-        /// </summary>
         public static void RestartDeviceClass(Guid classGuid, string label)
         {
             IntPtr devInfo = IntPtr.Zero;
             try
             {
-                devInfo = SetupDiGetClassDevs(ref classGuid, null, IntPtr.Zero,
-                    DIGCF_PRESENT);
+                devInfo = SetupDiGetClassDevs(ref classGuid, null, IntPtr.Zero, DIGCF_PRESENT);
                 if (devInfo == new IntPtr(-1)) return;
 
                 uint idx = 0;
@@ -489,14 +420,10 @@ namespace AlbusB
                 SetupDiCallClassInstaller(DIF_PROPERTYCHANGE, devInfo, ref dd);
         }
 
-        // Aygıt sınıfı GUID'leri
         public static readonly Guid GuidGpu = new Guid("4D36E968-E325-11CE-BFC1-08002BE10318");
         public static readonly Guid GuidNic = new Guid("4D36E972-E325-11CE-BFC1-08002BE10318");
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    //  MAIN SERVICE
-    // ══════════════════════════════════════════════════════════════════════════
     sealed class AlbusBService : ServiceBase
     {
         const string SVC_NAME               = "AlbusBSvc";
@@ -514,7 +441,7 @@ namespace AlbusB
         uint   defaultRes, minRes, maxRes, targetRes, customRes;
         long   processCounter;
         IntPtr hWaitTimer  = IntPtr.Zero;
-        IntPtr hGdi32      = IntPtr.Zero;   // v3.0: FreeLibrary için sakla
+        IntPtr hGdi32      = IntPtr.Zero;
         bool   isWin11;
 
         Timer                  guardTimer, purgeTimer, watchdogTimer, healthTimer;
@@ -529,7 +456,6 @@ namespace AlbusB
 
         PerformanceCounter pcMemAvail, pcCpuTotal;
 
-        // v3.0: COM nesneleri için temizlik listesi
         readonly List<IAudioClient3> audioClients   = new List<IAudioClient3>();
         AudioNotifier                audioNotifier;
 
@@ -550,9 +476,6 @@ namespace AlbusB
             CanShutdown                 = true;
         }
 
-        // ══════════════════════════════════════════════════════════════════════
-        //  START
-        // ══════════════════════════════════════════════════════════════════════
         protected override void OnStart(string[] args)
         {
             stopEvent.Reset();
@@ -645,9 +568,6 @@ namespace AlbusB
             base.OnStart(args);
         }
 
-        // ══════════════════════════════════════════════════════════════════════
-        //  STOP
-        // ══════════════════════════════════════════════════════════════════════
         protected override void OnStop()
         {
             stopEvent.Set();
@@ -659,15 +579,14 @@ namespace AlbusB
             DropTimer(ref watchdogTimer);
             DropTimer(ref healthTimer);
 
-            Safe.Run("watcher_stop",   () => { if (startWatch != null) { startWatch.Stop(); startWatch.Dispose(); startWatch = null; } });
-            Safe.Run("iniwatcher_stop",() => { if (iniWatcher != null) { iniWatcher.EnableRaisingEvents = false; iniWatcher.Dispose(); } });
+            Safe.Run("watcher_stop",    () => { if (startWatch != null) { startWatch.Stop(); startWatch.Dispose(); startWatch = null; } });
+            Safe.Run("iniwatcher_stop", () => { if (iniWatcher != null) { iniWatcher.EnableRaisingEvents = false; iniWatcher.Dispose(); } });
 
             Safe.Run("waittimer_stop", () =>
             {
                 if (hWaitTimer != IntPtr.Zero) { CloseHandle(hWaitTimer); hWaitTimer = IntPtr.Zero; }
             });
 
-            // v3.0: gdi32 handle serbest bırak
             Safe.Run("gdi32_free", () =>
             {
                 if (hGdi32 != IntPtr.Zero) { FreeLibrary(hGdi32); hGdi32 = IntPtr.Zero; }
@@ -679,7 +598,6 @@ namespace AlbusB
                 if (pcCpuTotal != null) { pcCpuTotal.Dispose(); pcCpuTotal = null; }
             });
 
-            // v3.0: IAudioClient3 COM nesnelerini temiz kapat
             Safe.Run("audio_com_release", () =>
             {
                 lock (audioClients)
@@ -717,7 +635,7 @@ namespace AlbusB
             });
 
             Log.Write("[albusbx] stopped, all changes reversed.");
-            Log.Stop();   // v3.0: async log thread'ini düzgünce kapat
+            Log.Stop();
             base.OnStop();
         }
 
@@ -752,9 +670,6 @@ namespace AlbusB
             t = null;
         }
 
-        // ══════════════════════════════════════════════════════════════════════
-        //  SELF PRIORITY + AFFINITY
-        // ══════════════════════════════════════════════════════════════════════
         void SetSelfPriority()
         {
             Safe.Run("self_priority", () =>
@@ -796,9 +711,6 @@ namespace AlbusB
             });
         }
 
-        // ══════════════════════════════════════════════════════════════════════
-        //  SCHEDULER
-        // ══════════════════════════════════════════════════════════════════════
         int savedDpcBehavior = -1;
 
         void TuneScheduler()
@@ -833,9 +745,6 @@ namespace AlbusB
             });
         }
 
-        // ══════════════════════════════════════════════════════════════════════
-        //  WIN11
-        // ══════════════════════════════════════════════════════════════════════
         bool DetectWin11()
         {
             return Safe.Run("win11", () =>
@@ -854,9 +763,6 @@ namespace AlbusB
             }, false);
         }
 
-        // ══════════════════════════════════════════════════════════════════════
-        //  C-STATE BLOCK
-        // ══════════════════════════════════════════════════════════════════════
         void DisableCStates()
         {
             Safe.Run("cstate_off", () =>
@@ -881,9 +787,6 @@ namespace AlbusB
             });
         }
 
-        // ══════════════════════════════════════════════════════════════════════
-        //  GPU
-        // ══════════════════════════════════════════════════════════════════════
         void BoostGpuPriority()
         {
             Safe.Run("gpu_prio", () =>
@@ -936,7 +839,6 @@ namespace AlbusB
                 if (count > 0)
                 {
                     Log.Write("[gpu_irq] " + count + " device(s), mask=0x" + fullMask.ToString("X"));
-                    // v3.0: Registry değişikliğini anında devreye sok
                     ThreadPool.QueueUserWorkItem(delegate
                     {
                         Thread.Sleep(200);
@@ -946,9 +848,6 @@ namespace AlbusB
             });
         }
 
-        // ══════════════════════════════════════════════════════════════════════
-        //  NIC IRQ + QoS
-        // ══════════════════════════════════════════════════════════════════════
         void OptimizeNicIrqAffinity()
         {
             Safe.Run("nic_irq", () =>
@@ -997,7 +896,6 @@ namespace AlbusB
                 if (count > 0)
                 {
                     Log.Write("[nic_irq] " + count + " adapter(s), core=" + nicCore);
-                    // v3.0: Registry değişikliğini anında devreye sok
                     ThreadPool.QueueUserWorkItem(delegate
                     {
                         Thread.Sleep(200);
@@ -1093,11 +991,6 @@ namespace AlbusB
             return false;
         }
 
-        // ══════════════════════════════════════════════════════════════════════
-        //  MEMORY
-        //  v3.0: VirtualAllocExNuma artık MEM_LARGE_PAGES bayrağı içeriyor.
-        //        Bu, gerçek Large Page tahsisi için SeLockMemoryPrivilege gerektirir.
-        // ══════════════════════════════════════════════════════════════════════
         void AcquireLargePagePrivilege()
         {
             Safe.Run("largepages", () =>
@@ -1145,15 +1038,12 @@ namespace AlbusB
             {
                 if (CpuTopology.BestNumaNode == 0) return;
 
-                // v3.0: MEM_LARGE_PAGES eklendi — gerçek Large Page tahsisi
                 UIntPtr sz   = (UIntPtr)(4 * 1024 * 1024);
                 uint    type = MEM_COMMIT | MEM_RESERVE | MEM_LARGE_PAGES;
 
                 IntPtr numa = VirtualAllocExNuma(
                     Process.GetCurrentProcess().Handle,
-                    IntPtr.Zero, sz,
-                    type,
-                    PAGE_READWRITE,
+                    IntPtr.Zero, sz, type, PAGE_READWRITE,
                     CpuTopology.BestNumaNode);
 
                 if (numa != IntPtr.Zero)
@@ -1163,14 +1053,11 @@ namespace AlbusB
                 }
                 else
                 {
-                    // Ayrıcalık yoksa normal sayfalarla devam et (fallback)
                     int err = Marshal.GetLastWin32Error();
                     Log.Write("[mem] Large Pages alloc failed (err=" + err + "), falling back to 4KB pages.", true);
                     numa = VirtualAllocExNuma(
                         Process.GetCurrentProcess().Handle,
-                        IntPtr.Zero, sz,
-                        MEM_COMMIT | MEM_RESERVE,
-                        PAGE_READWRITE,
+                        IntPtr.Zero, sz, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE,
                         CpuTopology.BestNumaNode);
                     if (numa != IntPtr.Zero)
                     {
@@ -1192,9 +1079,6 @@ namespace AlbusB
             Safe.Run("ghost", () => EmptyWorkingSet(Process.GetCurrentProcess().Handle));
         }
 
-        // ══════════════════════════════════════════════════════════════════════
-        //  TIMER
-        // ══════════════════════════════════════════════════════════════════════
         void SetResolutionVerified()
         {
             long c = Interlocked.Increment(ref processCounter);
@@ -1223,9 +1107,6 @@ namespace AlbusB
             NtSetTimerResolution(defaultRes, true, out actual);
         }
 
-        // ══════════════════════════════════════════════════════════════════════
-        //  GUARD
-        // ══════════════════════════════════════════════════════════════════════
         void StartGuard()
         {
             guardTimer = new Timer(GuardCallback, null,
@@ -1234,7 +1115,6 @@ namespace AlbusB
 
         void GuardCallback(object _)
         {
-            // Sıcak yol — Safe.Run kaldırıldı, inline try-catch
             try
             {
                 uint qMin, qMax, qCur;
@@ -1253,9 +1133,6 @@ namespace AlbusB
             catch (Exception ex) { Log.Write("[guard] " + ex.Message, true); }
         }
 
-        // ══════════════════════════════════════════════════════════════════════
-        //  PURGE
-        // ══════════════════════════════════════════════════════════════════════
         void StartPurge()
         {
             purgeTimer = new Timer(PurgeCallback, null,
@@ -1276,9 +1153,6 @@ namespace AlbusB
             GhostMemory();
         }
 
-        // ══════════════════════════════════════════════════════════════════════
-        //  WATCHDOG
-        // ══════════════════════════════════════════════════════════════════════
         void StartWatchdog()
         {
             watchdogTimer = new Timer(WatchdogCallback, null,
@@ -1327,9 +1201,6 @@ namespace AlbusB
             });
         }
 
-        // ══════════════════════════════════════════════════════════════════════
-        //  HEALTH MONITOR
-        // ══════════════════════════════════════════════════════════════════════
         void StartHealthMonitor()
         {
             healthTimer = new Timer(HealthCallback, null,
@@ -1379,9 +1250,6 @@ namespace AlbusB
             });
         }
 
-        // ══════════════════════════════════════════════════════════════════════
-        //  DPC BASELINE
-        // ══════════════════════════════════════════════════════════════════════
         void MeasureDpcBaseline()
         {
             Safe.Run("dpc_baseline", () =>
@@ -1401,9 +1269,6 @@ namespace AlbusB
             });
         }
 
-        // ══════════════════════════════════════════════════════════════════════
-        //  UI PRIORITY
-        // ══════════════════════════════════════════════════════════════════════
         void ModulateUiPriority(bool boost)
         {
             Safe.Run("ui_prio", () =>
@@ -1420,9 +1285,6 @@ namespace AlbusB
             });
         }
 
-        // ══════════════════════════════════════════════════════════════════════
-        //  ETW PROCESS TRACKER
-        // ══════════════════════════════════════════════════════════════════════
         void StartEtwWatcher()
         {
             etwThread              = new Thread(EtwWorker);
@@ -1466,7 +1328,6 @@ namespace AlbusB
             ushort dataLen = record.UserDataLength;
             IntPtr data    = record.UserData;
 
-            // Sıcak yol: Safe.Run kaldırıldı
             if (id != 1 || dataLen < 20) return;
             try
             {
@@ -1482,8 +1343,6 @@ namespace AlbusB
             catch { }
         }
 
-        // ── WMI fallback ──────────────────────────────────────────────────────
-        // v3.0: WITHIN 0.5 → WITHIN 2.0 (WmiPrvSE CPU aşımı giderildi)
         void StartWmiWatcher()
         {
             string q = string.Format(
@@ -1605,10 +1464,6 @@ namespace AlbusB
             });
         }
 
-        // ══════════════════════════════════════════════════════════════════════
-        //  AUDIO — IAudioClient3 minimum buffer + glitch detection
-        //  v3.0: Thread.Sleep → ManualResetEventSlim; COM release cleanup
-        // ══════════════════════════════════════════════════════════════════════
         void StartAudioThread()
         {
             audioThread              = new Thread(AudioWorker);
@@ -1682,7 +1537,7 @@ namespace AlbusB
                             if (client.InitializeSharedAudioStream(0, minF, pFmt, IntPtr.Zero) == 0 &&
                                 client.Start() == 0)
                             {
-                                lock (audioClients) audioClients.Add(client);  // v3.0: IAudioClient3 olarak sakla
+                                lock (audioClients) audioClients.Add(client);
 
                                 WAVEFORMATEX fmt = (WAVEFORMATEX)Marshal.PtrToStructure(pFmt, typeof(WAVEFORMATEX));
                                 string devId; dev.GetId(out devId);
@@ -1692,7 +1547,6 @@ namespace AlbusB
                                           ((defF / (double)fmt.nSamplesPerSec) * 1000.0).ToString("F3") + "ms → " +
                                           ((minF / (double)fmt.nSamplesPerSec) * 1000.0).ToString("F3") + "ms");
 
-                                // v3.0: GlitchDetector ManualResetEventSlim ile uyku
                                 IAudioClient3 glitchClient = client;
                                 Thread gd = new Thread(delegate() { GlitchDetector(glitchClient); });
                                 gd.Name         = "albusbx-glitch";
@@ -1718,9 +1572,6 @@ namespace AlbusB
             });
         }
 
-        // ── Glitch detector — v3.0: Thread.Sleep → stopEvent.Wait(timeout) ──
-        // Real-time thread artık scheduler'a bağlamdan kopar sinyali göndermiyor;
-        // WaitHandle timeout ile uyku yapılıyor.
         void GlitchDetector(IAudioClient3 client)
         {
             int  consecutiveZero = 0;
@@ -1728,7 +1579,6 @@ namespace AlbusB
 
             while (!stopEvent.IsSet)
             {
-                // v3.0: Thread.Sleep(50) yerine WaitHandle timeout — daha doğru uyanma
                 stopEvent.Wait(50);
                 if (stopEvent.IsSet) break;
 
@@ -1757,13 +1607,10 @@ namespace AlbusB
                         lastNonZeroTick = Stopwatch.GetTimestamp();
                     }
                 }
-                catch { /* client geçersizleşmiş olabilir, sessizce çık */ break; }
+                catch { break; }
             }
         }
 
-        // ══════════════════════════════════════════════════════════════════════
-        //  CONFIG / INI
-        // ══════════════════════════════════════════════════════════════════════
         void ReadConfig()
         {
             processNames = null;
@@ -1822,9 +1669,7 @@ namespace AlbusB
             });
         }
 
-        // ══════════════════════════════════════════════════════════════════════
-        //  P/INVOKE
-        // ══════════════════════════════════════════════════════════════════════
+        // ── P/Invoke ──────────────────────────────────────────────────────────
         [DllImport("ntdll.dll")] static extern int  NtSetTimerResolution(uint des, bool set, out uint cur);
         [DllImport("ntdll.dll")] static extern int  NtQueryTimerResolution(out uint min, out uint max, out uint cur);
         [DllImport("ntdll.dll")] static extern int  NtSetSystemInformation(int cls, ref int info, int len);
@@ -1849,11 +1694,11 @@ namespace AlbusB
         static extern IntPtr VirtualAllocExNuma(IntPtr proc, IntPtr addr, UIntPtr sz,
             uint allocType, uint protect, uint node);
         [DllImport("kernel32.dll")] static extern bool   VirtualFree(IntPtr addr, UIntPtr sz, uint freeType);
-        [DllImport("kernel32.dll", CharSet = CharSet.Ansi,  SetLastError = true)]
+        [DllImport("kernel32.dll", CharSet = CharSet.Ansi, SetLastError = true)]
         static extern IntPtr GetProcAddress(IntPtr hModule, string proc);
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         static extern IntPtr LoadLibraryW(string path);
-        [DllImport("kernel32.dll")] static extern bool FreeLibrary(IntPtr hModule);   // v3.0
+        [DllImport("kernel32.dll")] static extern bool FreeLibrary(IntPtr hModule);
 
         [DllImport("advapi32.dll", SetLastError = true)]
         static extern bool OpenProcessToken(IntPtr h, uint acc, out IntPtr tok);
@@ -1924,7 +1769,7 @@ namespace AlbusB
         const uint MEM_COMMIT                               = 0x1000u;
         const uint MEM_RESERVE                              = 0x2000u;
         const uint MEM_RELEASE                              = 0x8000u;
-        const uint MEM_LARGE_PAGES                          = 0x20000000u;  // v3.0
+        const uint MEM_LARGE_PAGES                          = 0x20000000u;
         const uint PAGE_READWRITE                           = 0x04u;
         const uint TOKEN_ADJUST_PRIVILEGES                  = 0x0020u;
         const uint TOKEN_QUERY                              = 0x0008u;
@@ -1936,7 +1781,6 @@ namespace AlbusB
         [StructLayout(LayoutKind.Sequential)]
         struct PROCESS_POWER_THROTTLING { public uint Version, ControlMask, StateMask; }
 
-        // v3.0: Pack=4 eklendi, platform alignment sorunları giderildi
         [StructLayout(LayoutKind.Sequential, Pack = 4)]
         struct MEMORY_PRIORITY_INFORMATION { public int MemoryPriority; }
 
@@ -1957,7 +1801,6 @@ namespace AlbusB
         [StructLayout(LayoutKind.Sequential, Pack = 4)]
         struct LUID_AND_ATTRIBUTES { public LUID Luid; public uint Attributes; }
 
-        // v3.0: Pack=4 ile alignment düzeltildi
         [StructLayout(LayoutKind.Sequential, Pack = 4)]
         struct TOKEN_PRIVILEGES
         {
@@ -2115,9 +1958,6 @@ namespace AlbusB
         internal void Log_(string msg) { Log.Write(msg); }
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    //  INSTALLER
-    // ══════════════════════════════════════════════════════════════════════════
     [RunInstaller(true)]
     public class AlbusBInstaller : Installer
     {
