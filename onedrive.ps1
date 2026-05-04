@@ -652,10 +652,18 @@ Remove-OneDrive
 # ════════════════════════════════════════════════════════════
 Write-Step 'removing windows backup'
 
-@('MicrosoftWindows.Client.CBS','WindowsBackup') | ForEach-Object {
+@('WindowsBackup') | ForEach-Object {
     Get-AppxPackage -AllUsers *$_* -ErrorAction SilentlyContinue |
-        ForEach-Object { Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue | Out-Null }
+        ForEach-Object {
+            try {
+                Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue | Out-Null
+            } catch {
+                Write-Log "SKIP (nonremovable): $($_.PackageFullName)"
+            }
+        }
 }
+# Client.CBS sistem paketidir — Remove-AppxPackage -AllUsers desteklemiyor (0x80070032)
+# Sadece icerisindeki AI bilesenlerini dosya sisteminden temizle (Section 5'te yapiliyor)
 
 Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
     Where-Object { $_.DisplayName -like '*Windows Backup*' } |
