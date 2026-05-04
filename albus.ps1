@@ -2637,7 +2637,7 @@ try {
         '/Online /Cleanup-Image /SPSuperseded'
     )
     foreach ($args in $dismJobs) {
-        $result = Start-Process -FilePath 'dism.exe' -ArgumentList $args -Wait -NoNewWindow -HideWindow -PassThru
+        $result = Start-Process -FilePath 'dism.exe' -ArgumentList $args -Wait -NoNewWindow -PassThru
         if ($result.ExitCode -eq 0) {
             Write-Step "dism $($args.Split('/')[3].Trim()) done" 'ok'
         } else {
@@ -2659,7 +2659,6 @@ $dismPackages = @(
     'Microsoft-Windows-Holographic*'
     'Microsoft-Windows-QuickAssist*'
     'Microsoft-Windows-StepsRecorder*'
-    'Microsoft-Windows-WirelessDisplay-Package*'
 )
 
 foreach ($pkg in $dismPackages) {
@@ -2747,7 +2746,7 @@ Write-Done 'startup cleanup'
 Write-Phase 'cleanup'
 
 Start-Process cleanmgr.exe -ArgumentList '/autoclean /d C:' -Wait -NoNewWindow
-# Remove-Item "C:\Albus" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item "C:\Albus" -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Done 'cleanup'
 
