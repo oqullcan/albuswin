@@ -838,7 +838,8 @@ Set-Regs @(
     # media player automatic update
     @{ Path = 'HKLM:\Software\Policies\Microsoft\WindowsMediaPlayer'; Name = 'DisableAutoUpdate'; Value = 0 }
     # block silent installation of copilot, devhome and outlook
-    @{ Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Orchestrator\UScheduler\CopilotUpdate'; Name = 'workCompleted'; Value = 1 }
+    @{ Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Orchestrator\UScheduler\CopilotUpdate';      Name = 'workCompleted'; Value = 1 }
+    @{ Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Orchestrator\UScheduler_Oobe\CopilotUpdate'; Name = 'workCompleted'; Value = 1 }
     @{ Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Orchestrator\UScheduler\DevHomeUpdate'; Name = 'workCompleted'; Value = 1 }
     @{ Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Orchestrator\UScheduler\OutlookUpdate'; Name = 'workCompleted'; Value = 1 }
     @{ Path = 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe'; Name = 'BlockedOobeUpdaters'; Value = '["MS_Outlook"]'; Type = 'String' }
@@ -2419,53 +2420,75 @@ Write-Done 'albusx service'
 
 Write-Phase 'debloat'
 
-# uwp removal
 Write-Step 'removing uwp bloat'
-Get-AppxPackage -AllUsers -ErrorAction SilentlyContinue | Where-Object {
-    $_.Name -notlike '*CBS*'                                       -and
-    $_.Name -notlike '*Microsoft.AV1VideoExtension*'               -and
-    $_.Name -notlike '*Microsoft.AVCEncoderVideoExtension*'        -and
-    $_.Name -notlike '*Microsoft.HEIFImageExtension*'              -and
-    $_.Name -notlike '*Microsoft.HEVCVideoExtension*'              -and
-    $_.Name -notlike '*Microsoft.MPEG2VideoExtension*'             -and
-    $_.Name -notlike '*Microsoft.Paint*'                           -and
-    $_.Name -notlike '*Microsoft.RawImageExtension*'               -and
-    $_.Name -notlike '*Microsoft.SecHealthUI*'                     -and
-    $_.Name -notlike '*Microsoft.VP9VideoExtensions*'              -and
-    $_.Name -notlike '*Microsoft.WebMediaExtensions*'              -and
-    $_.Name -notlike '*Microsoft.WebpImageExtension*'              -and
-    $_.Name -notlike '*Microsoft.Windows.Photos*'                  -and
-    $_.Name -notlike '*Microsoft.Windows.ShellExperienceHost*'     -and
-    $_.Name -notlike '*Microsoft.Windows.StartMenuExperienceHost*' -and
-    $_.Name -notlike '*Microsoft.WindowsNotepad*'                  -and
-    $_.Name -notlike '*Microsoft.WindowsStore*'                    -and
-    $_.Name -notlike '*Microsoft.ImmersiveControlPanel*'
-} | ForEach-Object {
-    try { Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue | Out-Null } catch {}
+$keepList = @(
+    '*CBS*'
+    '*Microsoft.AV1VideoExtension*'
+    '*Microsoft.AVCEncoderVideoExtension*'
+    '*Microsoft.HEIFImageExtension*'
+    '*Microsoft.HEVCVideoExtension*'
+    '*Microsoft.MPEG2VideoExtension*'
+    '*Microsoft.Paint*'
+    '*Microsoft.RawImageExtension*'
+    '*Microsoft.SecHealthUI*'
+    '*Microsoft.VP9VideoExtensions*'
+    '*Microsoft.WebMediaExtensions*'
+    '*Microsoft.WebpImageExtension*'
+    '*Microsoft.Windows.Photos*'
+    '*Microsoft.Windows.ShellExperienceHost*'
+    '*Microsoft.Windows.StartMenuExperienceHost*'
+    '*Microsoft.WindowsNotepad*'
+    '*Microsoft.WindowsStore*'
+    '*Microsoft.ImmersiveControlPanel*'
+    '*windows.immersivecontrolpanel*'
+    '*Microsoft.WindowsCalculator*'
+)
+function Test-ShouldKeep {
+    param([string]$Name)
+    foreach ($p in $keepList) {
+        if ($Name -like $p) { return $true }
+    }
+    return $false
 }
+Get-AppxPackage -AllUsers -ErrorAction SilentlyContinue |
+    Where-Object { -not (Test-ShouldKeep $_.Name) } |
+    ForEach-Object {
+        try { Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue | Out-Null } catch {}
+    }
+Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue |
+    Where-Object { -not (Test-ShouldKeep $_.DisplayName) } |
+    ForEach-Object {
+        try { Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName -NoRestart -ErrorAction SilentlyContinue | Out-Null } catch {}
+    }
 
 # windows capabilities
 Write-Step 'removing windows capabilities'
 try {
     Get-WindowsCapability -Online -ErrorAction Stop | Where-Object {
         $_.State -eq 'Installed'             -and
-        $_.Name -notlike '*Ethernet*'        -and
-        $_.Name -notlike '*WiFi*'            -and
-        $_.Name -notlike '*Notepad*'         -and
-        $_.Name -notlike '*NetFX3*'          -and
-        $_.Name -notlike '*VBSCRIPT*'        -and
-        $_.Name -notlike '*WMIC*'            -and
-        $_.Name -notlike '*ShellComponents*'
+        $_.Name  -notlike '*Ethernet*'       -and
+        $_.Name  -notlike '*WiFi*'           -and
+        $_.Name  -notlike '*Notepad*'        -and
+        $_.Name  -notlike '*NetFX3*'         -and
+        $_.Name  -notlike '*VBSCRIPT*'       -and
+        $_.Name  -notlike '*WMIC*'           -and
+        $_.Name  -notlike '*ShellComponents*'
     } | ForEach-Object {
-        try { Remove-WindowsCapability -Online -Name $_.Name -ErrorAction SilentlyContinue | Out-Null } catch {}
+        Write-Step "capability: $($_.Name.Split('~')[0].ToLower())" 'run'
+        try {
+            Remove-WindowsCapability -Online -Name $_.Name -ErrorAction SilentlyContinue | Out-Null
+            Write-Step "capability: $($_.Name.Split('~')[0].ToLower())" 'ok'
+        } catch {
+            Write-Step "capability: $($_.Name.Split('~')[0].ToLower())" 'fail'
+        }
     }
-} catch {}
+} catch { Write-Step 'capability removal skipped' 'warn' }
 
 # optional features
 Write-Step 'disabling optional features'
 try {
     Get-WindowsOptionalFeature -Online -ErrorAction Stop | Where-Object {
-        $_.State -eq 'Enabled'                          -and
+        $_.State       -eq 'Enabled'                    -and
         $_.FeatureName -notlike '*DirectPlay*'          -and
         $_.FeatureName -notlike '*LegacyComponents*'    -and
         $_.FeatureName -notlike '*NetFx*'               -and
@@ -2476,9 +2499,15 @@ try {
         $_.FeatureName -notlike '*Server-Gui-Mgmt*'     -and
         $_.FeatureName -notlike '*WirelessNetworking*'
     } | ForEach-Object {
-        try { Disable-WindowsOptionalFeature -Online -FeatureName $_.FeatureName -NoRestart -WarningAction SilentlyContinue -ErrorAction SilentlyContinue | Out-Null } catch {}
+        Write-Step "feature: $($_.FeatureName.ToLower())" 'run'
+        try {
+            Disable-WindowsOptionalFeature -Online -FeatureName $_.FeatureName -NoRestart -WarningAction SilentlyContinue -ErrorAction SilentlyContinue | Out-Null
+            Write-Step "feature: $($_.FeatureName.ToLower())" 'ok'
+        } catch {
+            Write-Step "feature: $($_.FeatureName.ToLower())" 'fail'
+        }
     }
-} catch {}
+} catch { Write-Step 'optional feature removal skipped' 'warn' }
 
 # ── edge ──────────────────────────────────────────────────
 Write-Step 'removing microsoft edge'
@@ -2521,11 +2550,8 @@ function Invoke-EdgeUninstallProcess {
 }
 
 function Remove-Edge {
-    Remove-ItemProperty -Path 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft Edge' `
-        -Name 'NoRemove' -ErrorAction SilentlyContinue | Out-Null
-    [Microsoft.Win32.Registry]::SetValue(
-        'HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdateDev',
-        'AllowUninstall', 1, [Microsoft.Win32.RegistryValueKind]::DWord) | Out-Null
+    Remove-ItemProperty -Path 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft Edge' -Name 'NoRemove' -ErrorAction SilentlyContinue | Out-Null
+    [Microsoft.Win32.Registry]::SetValue('HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdateDev', 'AllowUninstall', 1, [Microsoft.Win32.RegistryValueKind]::DWord) | Out-Null
 
     Invoke-EdgeUninstallProcess -Key '{56EB18F8-B008-4CBD-B6D2-8C97FE7E9062}'
 
@@ -2538,14 +2564,12 @@ function Remove-Edge {
 }
 
 function Remove-WebView {
-    Remove-ItemProperty -Path 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft EdgeWebView' `
-        -Name 'NoRemove' -ErrorAction SilentlyContinue | Out-Null
+    Remove-ItemProperty -Path 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft EdgeWebView' -Name 'NoRemove' -ErrorAction SilentlyContinue | Out-Null
     Invoke-EdgeUninstallProcess -Key '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
 }
 
 function Remove-EdgeUpdate {
-    Remove-ItemProperty -Path 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft Edge Update' `
-        -Name 'NoRemove' -ErrorAction SilentlyContinue | Out-Null
+    Remove-ItemProperty -Path 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft Edge Update' -Name 'NoRemove' -ErrorAction SilentlyContinue | Out-Null
     $registryPath   = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate'
     $uninstallCmd   = (Get-ItemProperty -Path $registryPath -EA SilentlyContinue).UninstallCmdLine
     if ([string]::IsNullOrEmpty($uninstallCmd)) { Write-Step 'edge update uninstall string not found' 'warn'; return }
