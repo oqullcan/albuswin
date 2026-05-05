@@ -2876,5 +2876,5 @@ Write-Host "     log → $ALBUS_LOG" -ForegroundColor DarkGray
 Write-Host '     restart recommended.' -ForegroundColor DarkGray
 Write-Host '  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━' -ForegroundColor DarkGray
 Write-Host ''
-
+pause
 Write-Log "COMPLETE in ${totalTime}m"
