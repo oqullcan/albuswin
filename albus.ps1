@@ -2667,10 +2667,15 @@ function Remove-OneDrive {
 
 Remove-OneDrive
 
-# ── winsxs ai & telemetry cleanup ─────────────────────────
-Write-Step 'winsxs ai & telemetry cleanup'
+# ════════════════════════════════════════════════════════════
+#  WINSXS · TELEMETRY & AI PURGE
+# ════════════════════════════════════════════════════════════
+Write-Phase 'telemetry & ai purge'
 
-$telemetryBinaries = @(
+# ── binary nötralize ──────────────────────────────────────
+Write-Step 'neutralizing telemetry & ai binaries'
+$purgeBinaries = @(
+    # telemetry
     "$env:SystemRoot\System32\CompatTelRunner.exe"
     "$env:SystemRoot\System32\DeviceCensus.exe"
     "$env:SystemRoot\System32\AggregatorHost.exe"
@@ -2678,84 +2683,128 @@ $telemetryBinaries = @(
     "$env:SystemRoot\System32\WerFault.exe"
     "$env:SystemRoot\System32\WerFaultSecure.exe"
     "$env:SystemRoot\System32\wermgr.exe"
-    "$env:SystemRoot\System32\DiagSvcs\DiagnosticsHub.StandardCollector.Service.exe"
     "$env:SystemRoot\System32\omadmclient.exe"
+    "$env:SystemRoot\System32\DiagSvcs\DiagnosticsHub.StandardCollector.Service.exe"
     "$env:SystemRoot\SysWOW64\CompatTelRunner.exe"
     "$env:SystemRoot\SysWOW64\DeviceCensus.exe"
+    # copilot & ai
+    "$env:SystemRoot\System32\Copilot.exe"
+    "$env:SystemRoot\SysWOW64\Copilot.exe"
+    "$env:SystemRoot\System32\WindowsCopilotRuntimeActions.exe"
+    # smartscreen
+    "$env:SystemRoot\System32\smartscreen.exe"
 )
-
-foreach ($bin in $telemetryBinaries) {
+foreach ($bin in $purgeBinaries) {
     if (-not (Test-Path $bin)) { continue }
     try {
-        Rename-Item -Path $bin -NewName "$bin.bak" -Force -ErrorAction Stop
+        Rename-Item $bin "$bin.bak" -Force -ErrorAction Stop
         Write-Step "neutralized: $(Split-Path $bin -Leaf)" 'ok'
     } catch {
-        Write-Step "skipped (locked or error): $(Split-Path $bin -Leaf)" 'warn'
+        Write-Step "skipped (locked): $(Split-Path $bin -Leaf)" 'warn'
     }
 }
 
-Write-Step 'dism component store cleanup'
-try {
-    $dismJobs = @(
-        '/Online /Cleanup-Image /StartComponentCleanup /ResetBase'
-        '/Online /Cleanup-Image /SPSuperseded'
-    )
-    foreach ($args in $dismJobs) {
-        $result = Start-Process -FilePath 'dism.exe' -ArgumentList $args -Wait -NoNewWindow -PassThru
-        if ($result.ExitCode -eq 0) {
-            Write-Step "dism $($args.Split('/')[3].Trim()) done" 'ok'
-        } else {
-            Write-Step "dism exit: $($result.ExitCode)" 'warn'
-        }
-    }
-} catch {
-    Write-Step "dism cleanup failed: $_" 'fail'
-}
+# ── dism package purge ────────────────────────────────────
+Write-Step 'querying installed dism packages'
 
-Write-Step 'removing ai & telemetry dism packages'
-$dismPackages = @(
-    'Microsoft-Windows-DiagTrack-Package*'
-    'Microsoft-Windows-Telemetry-Package*'
-    'Microsoft-Windows-CEIP-Package*'
-    'Microsoft-OneCore-ApplicationModel-Cortana*'
-    'Microsoft-Windows-AI-MachineLearning*'
-    'Microsoft-Windows-BioEnrollment-Package*'
-    'Microsoft-Windows-Holographic*'
-    'Microsoft-Windows-QuickAssist*'
-    'Microsoft-Windows-StepsRecorder*'
+$allPackages = dism /Online /Get-Packages 2>$null |
+    Where-Object { $_ -match '^\s*Package Identity\s*:' } |
+    ForEach-Object { ($_ -split ':\s*', 2)[1].Trim() }
+
+Write-Step "total packages found: $($allPackages.Count)" 'ok'
+
+$dismTargets = @(
+    'DiagTrack', 'Telemetry', 'CEIP', 'CEIPEnable', 'SQM',
+    'UsbCeip', 'TelemetryClient', 'Unified-Telemetry', 'Update-Aggregators',
+    'DataCollection', 'SetupPlatform-Telemetry', 'SettingsHandlers-SIUF',
+    'SettingsHandlers-Flights', 'Application-Experience', 'Compat-Appraiser',
+    'Compat-CompatTelRunner', 'Compat-GeneralTel', 'OneCoreUAP-Feedback',
+    'Diagnostics-Telemetry', 'Diagnostics-TraceReporting', 'BuildFlighting',
+    'Flighting', 'Feedback', 'FeedbackNotifications', 'StringFeedbackEngine',
+    'ErrorReporting', 'Microsoft-Copilot', 'SettingsHandlers-Copilot',
+    'UserExperience-AIX', 'UserExperience-CoreAI', 'AI-MachineLearning',
+    'BingSearch', 'Windows-UNP', 'Cortana', 'AdvertisingId', 'RetailDemo',
+    'OneDrive', 'QuickAssist', 'PeopleExperienceHost', 'OOBE-FirstLogonAnim',
+    'Skype-ORTC', 'FlipGridPWA', 'OutlookPWA', 'PortableWorkspaces',
+    'StepsRecorder', 'Holographic', 'Adobe-Flash', 'Bubbles', 'Mystify',
+    'PhotoScreensaver', 'scrnsave', 'ssText3d', 'Shell-SoundThemes',
+    'KeyboardDiagnostic', 'SecureAssessment', 'InputCloudStore',
+    'Windows-Ribbons', 'PhotoBasic', 'shimgvw'
 )
 
-foreach ($pkg in $dismPackages) {
-    try {
-        $found = dism /Online /Get-Packages /Format:Table 2>$null |
-            Where-Object { $_ -match [regex]::Escape($pkg.Replace('*','')) }
-        if (-not $found) { continue }
+$removedCount = 0
 
-        $found | ForEach-Object {
-            $pkgName = ($_ -split '\|')[0].Trim()
-            if ([string]::IsNullOrWhiteSpace($pkgName)) { return }
-            $r = Start-Process dism -ArgumentList "/Online /Remove-Package /PackageName:$pkgName /NoRestart /Quiet" `
-                -Wait -NoNewWindow -PassThru
-            if ($r.ExitCode -eq 0) { Write-Step "removed: $pkgName" 'ok' }
-            else { Write-Step "skip (in-use?): $pkgName" 'warn' }
+foreach ($target in $dismTargets) {
+    $matched = $allPackages | Where-Object { $_ -match $target }
+    if (-not $matched) { continue }
+    foreach ($pkg in $matched) {
+        Write-Step "removing: $($pkg.Split('~')[0].ToLower())" 'run'
+        $r = Start-Process dism `
+            -ArgumentList "/Online /Remove-Package /PackageName:$pkg /NoRestart /Quiet" `
+            -Wait -NoNewWindow -PassThru
+        if ($r.ExitCode -eq 0) {
+            Write-Step "removed: $($pkg.Split('~')[0].ToLower())" 'ok'
+            $removedCount++
+        } else {
+            Write-Step "skip: $($pkg.Split('~')[0].ToLower())" 'warn'
         }
-    } catch { Write-Step "package query failed: $pkg" 'warn' }
-}
-
-Write-Step 'disabling telemetry winsxs manifests'
-$winsxsManifests = @('*diagtrack*','*telemetry*','*ceip*','*diaghub*','*wer*') | ForEach-Object {
-    Get-ChildItem "$env:SystemRoot\WinSxS\Manifests" -Filter $_ -ErrorAction SilentlyContinue
-}
-foreach ($manifest in $winsxsManifests) {
-    try {
-        Rename-Item -Path $manifest.FullName -NewName "$($manifest.FullName).bak" -Force -ErrorAction Stop
-        Write-Step "manifest disabled: $($manifest.Name)" 'ok'
-    } catch {
-        Write-Step "manifest skipped (in use): $($manifest.Name)" 'warn'
     }
 }
 
-Write-Step 'winsxs ai & telemetry cleanup complete' 'ok'
+if ($removedCount -eq 0) {
+    Write-Step 'no targets found — system already clean' 'skip'
+} else {
+    Write-Step "dism purge complete — removed: $removedCount" 'ok'
+}
+
+# ── winsxs manifest deaktive ──────────────────────────────
+Write-Step 'disabling telemetry & ai winsxs manifests'
+$manifestPatterns = @(
+    '*diagtrack*'
+    '*telemetry*'
+    '*ceip*'
+    '*diaghub*'
+    '*wer*'
+    '*compattelrunner*'
+    '*devicecensus*'
+    '*sqmclient*'
+    '*aggregatorhost*'
+    '*copilot*'
+    '*cortana*'
+    '*bingsearch*'
+    '*retaildemo*'
+    '*feedback*'
+    '*flighting*'
+    '*errorrepor*'
+)
+$manifestDir = "$env:SystemRoot\WinSxS\Manifests"
+foreach ($pattern in $manifestPatterns) {
+    Get-ChildItem $manifestDir -Filter $pattern -ErrorAction SilentlyContinue | ForEach-Object {
+        try {
+            Rename-Item $_.FullName "$($_.FullName).bak" -Force -ErrorAction Stop
+            Write-Step "manifest: $($_.Name)" 'ok'
+        } catch {
+            Write-Step "manifest locked: $($_.Name)" 'warn'
+        }
+    }
+}
+
+# ── dism component store cleanup ──────────────────────────
+Write-Step 'dism component store cleanup'
+$dismCleanup = @(
+    '/Online /Cleanup-Image /StartComponentCleanup /ResetBase'
+    '/Online /Cleanup-Image /SPSuperseded'
+)
+foreach ($arg in $dismCleanup) {
+    $label = ($arg -split '/')[-1].Trim()
+    Write-Step "dism: $label" 'run'
+    $r = Start-Process dism -ArgumentList $arg -Wait -NoNewWindow -PassThru
+    if ($r.ExitCode -eq 0) { Write-Step "dism: $label" 'ok' }
+    else                   { Write-Step "dism: $label exit $($r.ExitCode)" 'warn' }
+}
+
+Write-Step 'telemetry & ai purge complete' 'ok'
+Write-Done 'telemetry & ai purge'
 
 # update health tools
 Write-Step 'removing update health tools'
