@@ -354,7 +354,7 @@ Write-Phase 'nvidia driver setup'
     Write-Step 'extracting & debloating'
     & $ZipExe x $dlg.FileName -o"$ExtractPath" -y | Out-Null
 
-    $Whitelist = '^(Display\.Driver|NVI2|EULA\.txt|ListDevices\.txt|setup\.cfg|setup\.exe)$'
+    $Whitelist = '^(Display\.Driver|NVI2|NvCpl|EULA\.txt|ListDevices\.txt|setup\.cfg|setup\.exe)$'
     Get-ChildItem $ExtractPath | Where-Object { $_.Name -notmatch $Whitelist } | ForEach-Object { Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
 
     $cfg = "$ExtractPath\setup.cfg"
@@ -2434,13 +2434,13 @@ $keepList = @(
     '*Microsoft.VP9VideoExtensions*'
     '*Microsoft.WebMediaExtensions*'
     '*Microsoft.WebpImageExtension*'
-    '*Microsoft.Windows.Photos*'
     '*Microsoft.Windows.ShellExperienceHost*'
     '*Microsoft.Windows.StartMenuExperienceHost*'
     '*Microsoft.WindowsNotepad*'
     '*Microsoft.WindowsStore*'
+    '*NVIDIACorp.NVIDIAControlPanel*'
     '*Microsoft.ImmersiveControlPanel*'
-    '*windows.immersivecontrolpanel*'
+    '*Windows.ImmersiveControlPanel*'
     '*Microsoft.WindowsCalculator*'
 )
 function Test-ShouldKeep {
