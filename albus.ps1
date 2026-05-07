@@ -448,108 +448,9 @@ Write-Phase 'nvidia driver setup'
 }
 
 function AMD {
-    Write-Phase 'amd driver setup'
-
-    Start-Process 'https://www.amd.com/en/support/download/drivers.html'
-    Write-Step '  download the adrenalin driver, then press any key...' -ForegroundColor Yellow
-    $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
-
-    Add-Type -AssemblyName System.Windows.Forms
-    $dlg = New-Object System.Windows.Forms.OpenFileDialog
-    $dlg.Title, $dlg.Filter = 'select amd driver', 'Executable (*.exe)|*.exe'
-    if ($dlg.ShowDialog() -ne 'OK') { Write-Step 'cancelled' 'warn'; return }
-
-    $ZipExe = 'C:\Program Files\7-Zip\7z.exe'
-    if (-not (Test-Path $ZipExe)) { Write-Step '7-zip not found' 'fail'; return }
-
-    $ExtractPath = "$ALBUS_DIR\AMD"
-    if (Test-Path $ExtractPath) { Remove-Item $ExtractPath -Recurse -Force }
-
-    Write-Step 'extracting & patching'
-    & $ZipExe x $dlg.FileName -o"$ExtractPath" -y | Out-Null
-
-    $XMLDirs = @('Config\AMDAUEPInstaller.xml', 'Config\AMDCOMPUTE.xml', 'Config\AMDLinkDriverUpdate.xml', 'Config\AMDRELAUNCHER.xml', 'Config\AMDScoSupportTypeUpdate.xml', 'Config\AMDUpdater.xml', 'Config\AMDUWPLauncher.xml', 'Config\EnableWindowsDriverSearch.xml', 'Config\InstallUEP.xml', 'Config\ModifyLinkUpdate.xml')
-    foreach ($X in $XMLDirs) {
-        $XP = Join-Path $ExtractPath $X
-        if (Test-Path $XP) {
-            $Content = Get-Content $XP -Raw
-            $Content = $Content -replace '<Enabled>true</Enabled>', '<Enabled>false</Enabled>' -replace '<Hidden>true</Hidden>', '<Hidden>false</Hidden>'
-            Set-Content $XP -Value $Content -NoNewline
-        }
-    }
-
-    $JSONDirs = @('Config\InstallManifest.json', 'Bin64\cccmanifest_64.json')
-    foreach ($J in $JSONDirs) {
-        $JP = Join-Path $ExtractPath $J
-        if (Test-Path $JP) {
-            $Content = Get-Content $JP -Raw
-            $Content = $Content -replace '"InstallByDefault"\s*:\s*"Yes"', '"InstallByDefault" : "No"'
-            Set-Content $JP -Value $Content -NoNewline
-        }
-    }
-
-    Write-Step 'installing silently'
-    $Setup = "$ExtractPath\Bin64\ATISetup.exe"
-    if (Test-Path $Setup) {
-        Start-Process -Wait $Setup -ArgumentList '-INSTALL -VIEW:2' -WindowStyle Hidden
-    }
-
-    Write-Step 'cleaning up amd bloat'
-    Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' 'AMDNoiseSuppression' '-' 'String'
-    Set-Reg 'HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce' 'StartRSX' '-' 'String'
-    Unregister-ScheduledTask -TaskName 'StartCN' -Confirm:$false -ErrorAction SilentlyContinue
-
-    $AMDSvcs = 'AMD Crash Defender Service', 'amdfendr', 'amdfendrmgr', 'amdacpbus', 'AMDSAFD', 'AtiHDAudioService'
-    foreach ($S in $AMDSvcs) {
-        cmd /c "sc stop `"$S`" >nul 2>&1"
-        cmd /c "sc delete `"$S`" >nul 2>&1"
-    }
-
-    Remove-Item "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\AMD Bug Report Tool" -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
-    Remove-Item "$env:SystemDrive\Windows\SysWOW64\AMDBugReportTool.exe" -Force -ErrorAction SilentlyContinue | Out-Null
-
-    $AMDInstallMgr = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match 'AMD Install Manager' }
-    if ($AMDInstallMgr) { Start-Process 'msiexec.exe' -ArgumentList "/x $($AMDInstallMgr.PSChildName) /qn /norestart" -Wait -NoNewWindow }
-
-    $RSPath = "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\AMD Software$([char]0xA789) Adrenalin Edition"
-    if (Test-Path $RSPath) {
-        Move-Item -Path "$RSPath\*.lnk" -Destination "$env:ProgramData\Microsoft\Windows\Start Menu\Programs" -Force -ErrorAction SilentlyContinue
-        Remove-Item $RSPath -Recurse -Force -ErrorAction SilentlyContinue
-    }
-    Remove-Item "$env:SystemDrive\AMD" -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
-
-    Write-Step 'amd optimizations'
-    $RSP = "$env:SystemDrive\Program Files\AMD\CNext\CNext\RadeonSoftware.exe"
-    if (Test-Path $RSP) {
-        Start-Process $RSP; Start-Sleep -Seconds 15; Stop-Process -Name 'RadeonSoftware' -Force -ErrorAction SilentlyContinue
-    }
-
-    $CN = 'HKCU:\Software\AMD\CN'
-    Set-Reg $CN 'AutoUpdate' 0
-    Set-Reg $CN 'WizardProfile' 'PROFILE_CUSTOM' 'String'
-    Set-Reg "$CN\CustomResolutions" 'EulaAccepted' 'true' 'String'
-    Set-Reg "$CN\DisplayOverride" 'EulaAccepted' 'true' 'String'
-    Set-Reg $CN 'SystemTray' 'false' 'String'
-    Set-Reg $CN 'CN_Hide_Toast_Notification' 'true' 'String'
-    Set-Reg $CN 'AnimationEffect' 'false' 'String'
-
-    $GpuBase = 'HKLM:\System\CurrentControlSet\Control\Class\{4D36E968-E325-11CE-BFC1-08002BE10318}'
-    Get-ChildItem $GpuBase -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
-        if ($_.PSChildName -eq 'UMD') {
-            Set-Reg $_.PSPath 'VSyncControl' ([byte[]](0x30,0x00)) 'Binary'
-            Set-Reg $_.PSPath 'TFQ' ([byte[]](0x32,0x00)) 'Binary'
-            Set-Reg $_.PSPath 'Tessellation' ([byte[]](0x31,0x00)) 'Binary'
-            Set-Reg $_.PSPath 'Tessellation_OPTION' ([byte[]](0x32,0x00)) 'Binary'
-        }
-        if ($_.PSChildName -eq 'power_v1') {
-            Set-Reg $_.PSPath 'abmlevel' ([byte[]](0x00,0x00,0x00,0x00)) 'Binary'
-        }
-    }
-
-    Write-Done 'amd driver setup'
 }
 
-function intel {
+function INTEL {
 }
 
 $GpuMenu = @(
@@ -567,8 +468,8 @@ switch -regex ($selection) {
         NVIDIA
     }
     '(?i)^amd$' {
-        Write-Done "GPU SELECTION"
-        AMD
+        Write-Step 'amd core not implemented yet' 'warn'
+        Write-Done 'GPU SELECTION'
     }
     '(?i)^intel$' {
         Write-Step 'intel core not implemented yet' 'warn'
