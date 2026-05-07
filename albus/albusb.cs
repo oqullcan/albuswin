@@ -1439,7 +1439,7 @@ namespace AlbusB
                 if (hWaitTimer != IntPtr.Zero)
                 {
                     long due = -1000L; // 100µs relative
-                    SetWaitableTimerEx(hWaitTimer, ref due, 0, null, IntPtr.Zero, IntPtr.Zero, 0);
+                    SetWaitableTimerEx(hWaitTimer, ref due, 0, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, 0);
                     WaitForSingleObject(hWaitTimer, 1);
                 }
                 NtSetTimerResolution(targetRes, true, out actual);
@@ -1485,7 +1485,7 @@ namespace AlbusB
                     if (hWaitTimer != IntPtr.Zero)
                     {
                         long due = -1000L; // 100µs
-                        SetWaitableTimerEx(hWaitTimer, ref due, 0, null, IntPtr.Zero, IntPtr.Zero, 0);
+                        SetWaitableTimerEx(hWaitTimer, ref due, 0, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, 0);
                         WaitForSingleObject(hWaitTimer, 1);
                     }
                     else
