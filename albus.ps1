@@ -1625,17 +1625,18 @@ Write-Step 'blacking out account pictures'
     }
 }
 
-<# context menu cleanup
-Write-Step 'cleaning context menu'
-@(
-    '-HKCR:\Folder\shell\pintohome'
-    '-HKCR:\*\shell\pintohomefile'
-    '-HKCR:\exefile\shellex\ContextMenuHandlers\Compatibility'
-    '-HKCR:\Folder\ShellEx\ContextMenuHandlers\Library Location'
-    '-HKCR:\AllFilesystemObjects\shellex\ContextMenuHandlers\ModernSharing'
-    '-HKCR:\AllFilesystemObjects\shellex\ContextMenuHandlers\SendTo'
-    '-HKCR:\UserLibraryFolder\shellex\ContextMenuHandlers\SendTo'
-) | ForEach-Object { Set-Reg -Path $_ -Name '' -Value '' } #>
+cmd /c "reg add `"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer`" /v `"NoCustomizeThisFolder`" /t REG_DWORD /d `"1`" /f >nul 2>&1"
+cmd /c "reg delete `"HKCR\Folder\shell\pintohome`" /f >nul 2>&1"
+cmd /c "reg delete `"HKCR\*\shell\pintohomefile`" /f >nul 2>&1"
+cmd /c "reg delete `"HKCR\exefile\shellex\ContextMenuHandlers\Compatibility`" /f >nul 2>&1"
+cmd /c "reg add `"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Blocked`" /v `"{9F156763-7844-4DC4-B2B1-901F640F5155}`" /t REG_SZ /d `"`" /f >nul 2>&1"
+cmd /c "reg add `"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Blocked`" /v `"{09A47860-11B0-4DA5-AFA5-26D86198A780}`" /t REG_SZ /d `"`" /f >nul 2>&1"
+cmd /c "reg add `"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Blocked`" /v `"{f81e9010-6ea4-11ce-a7ff-00aa003ca9f6}`" /t REG_SZ /d `"`" /f >nul 2>&1"
+cmd /c "reg delete `"HKCR\Folder\ShellEx\ContextMenuHandlers\Library Location`" /f >nul 2>&1"
+cmd /c "reg delete `"HKCR\AllFilesystemObjects\shellex\ContextMenuHandlers\ModernSharing`" /f >nul 2>&1"
+cmd /c "reg add `"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer`" /v `"NoPreviousVersionsPage`" /t REG_DWORD /d `"1`" /f >nul 2>&1"
+cmd /c "reg delete `"HKCR\AllFilesystemObjects\shellex\ContextMenuHandlers\SendTo`" /f >nul 2>&1"
+cmd /c "reg delete `"HKCR\UserLibraryFolder\shellex\ContextMenuHandlers\SendTo`" /f >nul 2>&1"
 
 Set-Regs @(
     @{ Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer';        Name = 'NoCustomizeThisFolder';                Value = 1 }
@@ -2180,6 +2181,12 @@ if ((Get-CimInstance Win32_Processor -EA 0).Manufacturer -match 'Intel') {
     Remove-ItemProperty -Path $KernelPath -Name 'DisableTSX' -EA 0
 }
 
+# disable auto color management
+$basePath = "HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\MonitorDataStore"
+foreach ($key in (Get-ChildItem -Path $basePath -Recurse -ErrorAction SilentlyContinue)) {
+    cmd /c "reg add `"$($key.Name)`" /v `"AutoColorManagementEnabled`" /t REG_DWORD /d `"0`" /f >nul 2>&1"
+}
+
 Write-Done 'hardware tuning'
 
 Write-Phase 'filesystem & boot'
@@ -2188,7 +2195,6 @@ Write-Step 'ntfs'
 fsutil behavior set disable8dot3 1 | Out-Null
 fsutil behavior set disabledeletenotify 0 | Out-Null
 fsutil behavior set disablelastaccess 1 | Out-Null
-fsutil behavior set memoryusage 1 | Out-Null
 
 Write-Step 'bcdedit'
 bcdedit /timeout 10 | Out-Null
@@ -2758,8 +2764,18 @@ Write-Done 'startup cleanup'
 
 Write-Phase 'cleanup'
 
+Remove-Item "$env:UserProfile\AppData\Local\Temp\*" -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
+Remove-Item "$env:SystemDrive\Windows\Temp\*" -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
+Remove-Item "$env:SystemDrive\inetpub" -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
+Remove-Item "$env:SystemDrive\PerfLogs" -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
+Remove-Item "$env:SystemDrive\XboxGames" -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
+Remove-Item "$env:SystemDrive\Windows.old" -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
+Remove-Item "$env:SystemDrive\DumpStack.log" -Force -ErrorAction SilentlyContinue | Out-Null
+Remove-Item "C:\Albus" -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
 Start-Process cleanmgr.exe -ArgumentList '/autoclean /d C:' -Wait -NoNewWindow
-Remove-Item "C:\Albus" -Recurse -Force -ErrorAction SilentlyContinue
+
+cmd /c "cd /d %systemroot%\system32 && lodctr /R >nul 2>&1"
+cmd /c "cd /d %systemroot%\sysWOW64 && lodctr /R >nul 2>&1"
 
 Write-Done 'cleanup'
 
@@ -2772,9 +2788,8 @@ $totalTime = [math]::Round(((Get-Date) - $TODAY).TotalMinutes, 1)
 Write-Host ''
 Write-Host '  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━' -ForegroundColor DarkGray
 Write-Host "     albus v$ALBUS_VERSION  ·  complete  ·  ${totalTime}m" -ForegroundColor White
-Write-Host "     log → $ALBUS_LOG" -ForegroundColor DarkGray
-Write-Host '     restart recommended.' -ForegroundColor DarkGray
 Write-Host '  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━' -ForegroundColor DarkGray
 Write-Host ''
-pause
 Write-Log "COMPLETE in ${totalTime}m"
+Start-Sleep -Seconds 5
+shutdown -r -t 00
