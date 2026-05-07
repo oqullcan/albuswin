@@ -249,6 +249,7 @@ Initialize-Drives
 
 Write-Phase 'system preparation'
 
+<# 
 # 1.1  kill interfering processes before touching their state
 Write-Step 'stopping shell processes'
 'AppActions',
@@ -264,11 +265,9 @@ Write-Step 'stopping shell processes'
 'Widgets',
 'WidgetService',
 'MiniSearchHost' | ForEach-Object { Stop-Process -Name $_ -Force -ErrorAction SilentlyContinue }
+#>
 
-# 1.2  psdrive registration (already done via initialize-drives, confirm)
-Write-Step 'registry drives initialized'
-
-# 1.3  capability consent storage reset (must precede camera/mic tweaks)
+# 1.2  capability consent storage reset (must precede camera/mic tweaks)
 Write-Step 'resetting capability consent storage'
 Stop-Service -Name 'camsvc' -Force -ErrorAction SilentlyContinue
 Remove-Item -Path "$env:ProgramData\Microsoft\Windows\CapabilityAccessManager\CapabilityConsentStorage.db*" -Force -ErrorAction SilentlyContinue
