@@ -8,13 +8,7 @@
 
 ---
 
-## a note on why this exists
-
-my daily driver is linux — specifically [omarchy](https://omarchy.org), an arch-based setup i've spent a long time tuning to be exactly what i want. everything about how i compute day-to-day happens there.
-
-but i play cs2. and whenever i touch windows, i can't stop noticing how much of what ships by default is either actively hostile to performance, designed to collect data, or simply leftover from engineering decisions made fifteen years ago that nobody cleaned up. so this became a hobby: understanding exactly what windows does under the hood, why certain things cause latency, what the registry actually controls, and how to build a system that gets out of its own way.
-
-albus is that understanding, crystallized into a script. it's not a one-click magic optimizer. every change in it has a reason, and this document explains all of them.
+**note**: my primary operating system is linux (omarchy). this repository is a hobby project I wrote to optimize the system as much as possible and minimize latency when i switch to windows solely to play cs2. it is not a toolkit.
 
 ---
 
