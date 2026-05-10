@@ -4,8 +4,6 @@ my main os is linux ([omarchy](https://github.com/oqullcan/omarchy)).
 this exists because i switch to windows to play cs2 and i want the
 os to stay out of the way. it runs once, reboots, done.
 
----
-
 ## usage
 
 **playbook** — run elevated:
@@ -17,8 +15,6 @@ os to stay out of the way. it runs once, reboots, done.
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/oqullcan/albuswin/refs/heads/main/usb.ps1)))
 ```
-
----
 
 ## what it does
 
@@ -36,11 +32,9 @@ leaves only `AlbusX.exe` (service) and `albus.log` on disk.
 - **power** — custom plan: 100% min cpu, core parking off, heterogeneous scheduling off, all sleep off
 - **hardware** — msi mode on all pci, device power management off, exploit mitigations off
 - **filesystem** — 8.3 names off, last access off, platform clock removed, memory compression off
-- **albusx** — compiles and deploys native service (0.5ms timer, irq isolation, audio buffer min)
+- [**albusx**](albuservices.md) — compiles and deploys native service (0.5ms timer, irq isolation, audio buffer min)
 - **debloat** — removes uwp, edge, onedrive, capabilities, telemetry binaries, 50+ dism packages
 - **cleanup** — clears all startup entries, temp directories, reboots
-
----
 
 ## reversion
 
