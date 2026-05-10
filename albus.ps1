@@ -1,5 +1,6 @@
+#Requires -RunAsAdministrator
 
-#  ── ogulcan yetim - albus playbook
+#  ── ogulcan yetim - albuswin
 #  ── https://www.github.com/oqullcan/albuswin
 #  ── https://www.x.com/oqullcn
 
