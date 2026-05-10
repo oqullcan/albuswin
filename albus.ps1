@@ -2425,7 +2425,7 @@ Write-Phase 'albusx service'
 $SvcName = 'AlbusXSvc'
 $ExePath  = "$env:SystemRoot\AlbusX.exe"
 $CSPath   = "$env:SystemRoot\AlbusX.cs"
-$SrcURL   = 'https://raw.githubusercontent.com/oqullcan/albuswin/refs/heads/main/albus/albus.cs'
+$SrcURL   = 'https://raw.githubusercontent.com/oqullcan/albuswin/refs/heads/main/albus/albus-experimental.cs'
 
 $CSC = $null
 $dotnetFW = "$env:windir\Microsoft.NET\Framework64"
