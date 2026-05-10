@@ -32,7 +32,7 @@ leaves only `AlbusX.exe` (service) and `albus.log` on disk.
 - **power** — custom plan: 100% min cpu, core parking off, heterogeneous scheduling off, all sleep off
 - **hardware** — msi mode on all pci, device power management off, exploit mitigations off
 - **filesystem** — 8.3 names off, last access off, platform clock removed, memory compression off
-- [**albusx**](albuservices.md) — compiles and deploys native service (0.5ms timer, irq isolation, audio buffer min)
+- [**albusx**](service.md) — compiles and deploys native service (0.5ms timer, irq isolation, audio buffer min)
 - **debloat** — removes uwp, edge, onedrive, capabilities, telemetry binaries, 50+ dism packages
 - **cleanup** — clears all startup entries, temp directories, reboots
 
