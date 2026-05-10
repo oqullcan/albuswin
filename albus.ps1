@@ -3030,21 +3030,15 @@ foreach ($arg in $dismCleanup) {
 Write-Step 'telemetry & ai purge complete' 'ok'
 Write-Done 'telemetry & ai purge'
 
-# update health tools
-Write-Step 'removing update health tools'
+# ── misc ──────────────────────────────────────────────────
+Write-Step 'removing update health tools & gameinput'
 Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
-    Where-Object { $_.DisplayName -match 'Update for x64-based Windows Systems|Microsoft Update Health Tools' } |
+    Where-Object { $_.DisplayName -match 'Update for x64-based Windows Systems|Microsoft Update Health Tools|Microsoft GameInput' } |
     ForEach-Object {
         if ($_.PSChildName) { Start-Process 'msiexec.exe' -ArgumentList "/x $($_.PSChildName) /qn /norestart" -Wait -NoNewWindow }
     }
 sc.exe delete 'uhssvc' *>$null
 Unregister-ScheduledTask -TaskName PLUGScheduler -Confirm:$false -ErrorAction SilentlyContinue
-
-# gameinput
-Write-Step 'removing microsoft gameinput'
-Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
-    Where-Object { $_.DisplayName -like '*Microsoft GameInput*' } |
-    ForEach-Object { Start-Process 'msiexec.exe' -ArgumentList "/x $($_.PSChildName) /qn /norestart" -Wait -NoNewWindow }
 
 # ════════════════════════════════════════════════════════════
 #  PHASE 12 · STARTUP & TASK CLEANUP
