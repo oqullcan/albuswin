@@ -334,34 +334,42 @@ Write-Done 'software installation'
 # ════════════════════════════════════════════════════════════
 
 function NVIDIA {
-Write-Phase 'nvidia driver setup'
+    Write-Phase 'nvidia driver setup'
 
-    Start-Process 'https://www.nvidia.com/en-us/drivers'
-    Write-Step '  download the driver, then press any key...' -ForegroundColor Yellow
-    $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+    Write-Step 'finding latest nvidia driver'
+    $uri = 'https://gfwsl.geforce.com/services_toolkit/services/com/nvidia/services/AjaxDriverService.php?func=DriverManualLookup&psid=120&pfid=929&osID=57&languageCode=1033&isWHQL=1&dch=1&sort1=0&numberOfResults=1'
+    $response = Invoke-RestMethod -Uri $uri -Method GET -UseBasicParsing
+    $version = $response.IDS[0].downloadInfo.Version
+    $windowsVersion = if ([Environment]::OSVersion.Version -ge (new-object 'Version' 9, 1)) {"win10-win11"} else {"win8-win7"}
+    $windowsArchitecture = if ([Environment]::Is64BitOperatingSystem) {"64bit"} else {"32bit"}
+    $url = "https://international.download.nvidia.com/Windows/$version/$version-desktop-$windowsVersion-$windowsArchitecture-international-dch-whql.exe"
+    $OriginalFileName = ($url -split '/')[-1]
 
-    Add-Type -AssemblyName System.Windows.Forms
-    $dlg = New-Object System.Windows.Forms.OpenFileDialog
-    $dlg.Title, $dlg.Filter = 'select nvidia driver', 'Executable (*.exe)|*.exe'
-    if ($dlg.ShowDialog() -ne 'OK') { Write-Step 'cancelled' 'warn'; return }
+    $DriverExe = "$ALBUS_DIR\$OriginalFileName"
+    Write-Step "downloading $OriginalFileName"
+    Get-File $url $DriverExe
 
-    $ZipExe = 'C:\Program Files\7-Zip\7z.exe'
+    $ZipExe = "$env:ProgramFiles\7-Zip\7z.exe"
     if (-not (Test-Path $ZipExe)) { Write-Step '7-zip not found' 'fail'; return }
 
     $ExtractPath = "$ALBUS_DIR\NVIDIA"
     if (Test-Path $ExtractPath) { Remove-Item $ExtractPath -Recurse -Force }
 
     Write-Step 'extracting & debloating'
-    & $ZipExe x $dlg.FileName -o"$ExtractPath" -y | Out-Null
+    & $ZipExe x $DriverExe -o"$ExtractPath" -y | Out-Null
 
-    $Whitelist = '^(Display\.Driver|NVI2|NvCpl|EULA\.txt|ListDevices\.txt|setup\.cfg|setup\.exe)$'
+    $Whitelist = '^(Display\.Driver|NVI2|EULA\.txt|ListDevices\.txt|setup\.cfg|setup\.exe)$'
     Get-ChildItem $ExtractPath | Where-Object { $_.Name -notmatch $Whitelist } | ForEach-Object { Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
 
     $cfg = "$ExtractPath\setup.cfg"
     if (Test-Path $cfg) { (Get-Content $cfg) | Where-Object { $_ -notmatch 'EulaHtmlFile|FunctionalConsentFile|PrivacyPolicyFile' } | Set-Content $cfg -Force }
 
     Write-Step 'installing silently'
-    Start-Process "$ExtractPath\setup.exe" -ArgumentList '-s -noreboot -noeula -clean' -Wait
+    Start-Process "$ExtractPath\setup.exe" -ArgumentList '-s -noreboot -noeula -clean' -Wait -NoNewWindow
+
+    Remove-Item $DriverExe -Force -ErrorAction SilentlyContinue
+    Remove-Item $ExtractPath -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item "$env:SystemDrive\NVIDIA" -Recurse -Force -ErrorAction SilentlyContinue
 
     Write-Step 'nvidia optimizations'
     Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4D36E968-E325-11CE-BFC1-08002BE10318}' -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match '^\d{4}$' } | ForEach-Object {
@@ -378,7 +386,7 @@ Write-Phase 'nvidia driver setup'
     Set-Reg 'HKCU:\Software\NVIDIA Corporation\NvTray' 'StartOnLogin' 0
     Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Services\nvlddmkm\FTS' 'EnableGR535' 0
     Set-Reg 'HKLM:\SYSTEM\ControlSet001\Services\nvlddmkm\Parameters\FTS' 'EnableGR535' 0
-    Set-Reg 'HKCU:\Software\NVIDIA Corporation\NVControlPanel2\Client' 'OptInOrOutPreference' 0
+    Set-Reg 'HKLM:\SYSTEM\CurrentControlSet\Services\nvlddmkm\Parameters\FTS' 'EnableGR535' 0
 
     $DRSPath = 'C:\ProgramData\NVIDIA Corporation\Drs'
     if (Test-Path $DRSPath) { Get-ChildItem -Path $DRSPath -Recurse | Unblock-File -ErrorAction SilentlyContinue }
@@ -431,6 +439,8 @@ Write-Phase 'nvidia driver setup'
       <ProfileSetting><SettingNameInfo>Power Management - Mode</SettingNameInfo><SettingID>274197361</SettingID><SettingValue>1</SettingValue><ValueType>Dword</ValueType></ProfileSetting>
       <ProfileSetting><SettingNameInfo>Shader Cache - Cache Size</SettingNameInfo><SettingID>11306135</SettingID><SettingValue>4294967295</SettingValue><ValueType>Dword</ValueType></ProfileSetting>
       <ProfileSetting><SettingNameInfo>Threaded Optimization</SettingNameInfo><SettingID>549528094</SettingID><SettingValue>1</SettingValue><ValueType>Dword</ValueType></ProfileSetting>
+      <ProfileSetting><SettingNameInfo>OpenGL GDI Compatibility</SettingNameInfo><SettingID>544392611</SettingID><SettingValue>0</SettingValue><ValueType>Dword</ValueType></ProfileSetting>
+      <ProfileSetting><SettingNameInfo>Preferred OpenGL GPU</SettingNameInfo><SettingID>550564838</SettingID><SettingValue>id,2.0:268410DE,00000100,GF - (400,2,161,24564) @ (0)</SettingValue><ValueType>String</ValueType></ProfileSetting>
     </Settings>
   </Profile>
 </ArrayOfProfile>
@@ -448,9 +458,196 @@ Write-Phase 'nvidia driver setup'
 }
 
 function AMD {
+    Write-Phase 'amd driver setup'
+
+    Write-Step 'downloading amd web installer'
+    $DownloadAmd = Invoke-WebRequest "https://www.amd.com/en/support/download/drivers.html" -UseBasicParsing |
+        Select-Object -ExpandProperty Links |
+        Where-Object { $_.href -match "drivers\.amd\.com/drivers/installer/.*/whql/amd-software-adrenalin-edition-.*-minimalsetup-.*_web\.exe" } | Select-Object href -First 1
+    
+    $spoofwebbrowser = @{
+        "User-Agent" = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        "Accept"     = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        "Referer"    = "https://www.amd.com/"
+    }
+    $OriginalFileName = ($DownloadAmd.href.Split('?')[0] -split '/')[-1]
+    $DriverExe = "$ALBUS_DIR\$OriginalFileName"
+    Write-Step "downloading $OriginalFileName"
+    Invoke-WebRequest $DownloadAmd.href -UseBasicParsing -Headers $spoofwebbrowser -OutFile $DriverExe -ErrorAction SilentlyContinue | Out-Null
+
+    $ZipExe = "$env:ProgramFiles\7-Zip\7z.exe"
+    if (-not (Test-Path $ZipExe)) { Write-Step '7-zip not found' 'fail'; return }
+
+    $ExtractPath = "$ALBUS_DIR\AMD"
+    if (Test-Path $ExtractPath) { Remove-Item $ExtractPath -Recurse -Force }
+
+    Write-Step 'extracting & debloating'
+    & $ZipExe x $DriverExe -o"$ExtractPath" -y | Out-Null
+
+    $xmlFiles = @(
+        "$ExtractPath\Config\AMDAUEPInstaller.xml",
+        "$ExtractPath\Config\AMDCOMPUTE.xml",
+        "$ExtractPath\Config\AMDLinkDriverUpdate.xml",
+        "$ExtractPath\Config\AMDRELAUNCHER.xml",
+        "$ExtractPath\Config\AMDScoSupportTypeUpdate.xml",
+        "$ExtractPath\Config\AMDUpdater.xml",
+        "$ExtractPath\Config\AMDUWPLauncher.xml",
+        "$ExtractPath\Config\EnableWindowsDriverSearch.xml",
+        "$ExtractPath\Config\InstallUEP.xml",
+        "$ExtractPath\Config\ModifyLinkUpdate.xml"
+    )
+    foreach ($file in $xmlFiles) {
+        if (Test-Path $file) {
+            $content = Get-Content $file -Raw
+            $content = $content -replace '<Enabled>true</Enabled>', '<Enabled>false</Enabled>'
+            $content = $content -replace '<Hidden>true</Hidden>', '<Hidden>false</Hidden>'
+            Set-Content $file -Value $content -NoNewline
+        }
+    }
+
+    $jsonFiles = @(
+        "$ExtractPath\Config\InstallManifest.json",
+        "$ExtractPath\Bin64\cccmanifest_64.json"
+    )
+    foreach ($file in $jsonFiles) {
+        if (Test-Path $file) {
+            $content = Get-Content $file -Raw
+            $content = $content -replace '"InstallByDefault"\s*:\s*"Yes"', '"InstallByDefault" : "No"'
+            Set-Content $file -Value $content -NoNewline
+        }
+    }
+
+    Write-Step 'installing silently'
+    Start-Process "$ExtractPath\Bin64\ATISetup.exe" -ArgumentList "-INSTALL -VIEW:2" -Wait -WindowStyle Hidden
+
+    Write-Step 'cleaning up bloatware & services'
+    Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "AMDNoiseSuppression" -ErrorAction SilentlyContinue | Out-Null
+    Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce" -Name "StartRSX" -ErrorAction SilentlyContinue | Out-Null
+    Unregister-ScheduledTask -TaskName "StartCN" -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+
+    @('AMD Crash Defender Service', 'amdfendr', 'amdfendrmgr', 'amdacpbus', 'AMDSAFD', 'AtiHDAudioService') | ForEach-Object {
+        sc.exe stop $_ | Out-Null
+        sc.exe delete $_ | Out-Null
+    }
+
+    Remove-Item "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\AMD Bug Report Tool" -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item "$env:SystemDrive\Windows\SysWOW64\AMDBugReportTool.exe" -Force -ErrorAction SilentlyContinue
+
+    $amdinstallmanager = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "*AMD Install Manager*" }
+    if ($amdinstallmanager) {
+        $guid = $amdinstallmanager.PSChildName
+        Start-Process "msiexec.exe" -ArgumentList "/x $guid /qn /norestart" -Wait -NoNewWindow
+    }
+
+    $folderName = "AMD Software$([char]0xA789) Adrenalin Edition"
+    Move-Item -Path "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\$folderName\$folderName.lnk" -Destination "$env:ProgramData\Microsoft\Windows\Start Menu\Programs" -Force -ErrorAction SilentlyContinue
+    Remove-Item "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\$folderName" -Recurse -Force -ErrorAction SilentlyContinue
+
+    Remove-Item $DriverExe -Force -ErrorAction SilentlyContinue
+    Remove-Item $ExtractPath -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item "$env:SystemDrive\AMD" -Recurse -Force -ErrorAction SilentlyContinue
+
+    Write-Step 'amd optimizations'
+    Start-Process "$env:SystemDrive\Program Files\AMD\CNext\CNext\RadeonSoftware.exe"
+    Start-Sleep -Seconds 15
+    Stop-Process -Name "RadeonSoftware" -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+
+    Set-Reg 'HKCU:\Software\AMD\CN' 'AutoUpdate' 0
+    Set-Reg 'HKCU:\Software\AMD\CN' 'WizardProfile' 'PROFILE_CUSTOM' 'String'
+
+    $basePath = "HKLM:\System\ControlSet001\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}"
+    Get-ChildItem -Path $basePath -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -eq "UMD" } | ForEach-Object {
+        Set-Reg $_.Name 'VSyncControl' ([byte[]](0x30,0x30,0x30,0x30)) 'Binary'
+        Set-Reg $_.Name 'TFQ' ([byte[]](0x33,0x32,0x30,0x30)) 'Binary'
+        Set-Reg $_.Name 'Tessellation' ([byte[]](0x33,0x31,0x30,0x30)) 'Binary'
+        Set-Reg $_.Name 'Tessellation_OPTION' ([byte[]](0x33,0x32,0x30,0x30)) 'Binary'
+    }
+
+    Set-Reg 'HKCU:\Software\AMD\CN\CustomResolutions' 'EulaAccepted' 'true' 'String'
+    Set-Reg 'HKCU:\Software\AMD\CN\DisplayOverride' 'EulaAccepted' 'true' 'String'
+
+    Get-ChildItem -Path $basePath -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -eq "power_v1" } | ForEach-Object {
+        Set-Reg $_.Name 'abmlevel' ([byte[]](0x30,0x30,0x30,0x30,0x30,0x30,0x30,0x30)) 'Binary'
+    }
+
+    Set-Reg 'HKCU:\Software\AMD\CN' 'SystemTray' 'false' 'String'
+    Set-Reg 'HKCU:\Software\AMD\CN' 'CN_Hide_Toast_Notification' 'true' 'String'
+    Set-Reg 'HKCU:\Software\AMD\CN' 'AnimationEffect' 'false' 'String'
+
+    Remove-Item "Registry::HKCU\Software\AMD\CN\Notification" -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -Path "Registry::HKCU\Software\AMD\CN\Notification" -Force -ErrorAction SilentlyContinue | Out-Null
+    Set-Reg 'HKCU:\Software\AMD\CN\FreeSync' 'AlreadyNotified' 1
+    Set-Reg 'HKCU:\Software\AMD\CN\OverlayNotification' 'AlreadyNotified' 1
+    Set-Reg 'HKCU:\Software\AMD\CN\VirtualSuperResolution' 'AlreadyNotified' 1
+
+    Write-Done 'amd driver setup'
 }
 
 function INTEL {
+    Write-Phase 'intel driver setup'
+
+    Write-Step '  download the driver, then press any key...' -ForegroundColor Yellow
+    Start-Process "https://www.intel.com/content/www/us/en/search.html#sortCriteria=%40lastmodifieddt%20descending&f-operatingsystem_en=Windows%2011%20Family*&f-downloadtype=Drivers&cf-tabfilter=Downloads&cf-downloadsppth=Graphics"
+    $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+
+    Add-Type -AssemblyName System.Windows.Forms
+    $dlg = New-Object System.Windows.Forms.OpenFileDialog
+    $dlg.Title, $dlg.Filter = 'select intel driver', 'Executable (*.exe)|*.exe'
+    if ($dlg.ShowDialog() -ne 'OK') { Write-Step 'cancelled' 'warn'; return }
+
+    $ZipExe = "$env:ProgramFiles\7-Zip\7z.exe"
+    if (-not (Test-Path $ZipExe)) { Write-Step '7-zip not found' 'fail'; return }
+
+    $ExtractPath = "$ALBUS_DIR\INTEL"
+    if (Test-Path $ExtractPath) { Remove-Item $ExtractPath -Recurse -Force }
+
+    Write-Step 'extracting & debloating'
+    & $ZipExe x $dlg.FileName -o"$ExtractPath" -y | Out-Null
+
+    Write-Step 'installing silently'
+    Start-Process "cmd.exe" -ArgumentList "/c `"$ExtractPath\Installer.exe`" -f --noExtras --terminateProcesses -s" -WindowStyle Hidden -Wait
+
+    $IntelGraphicsSoftware = Get-ChildItem "$ExtractPath\Resources\Extras\IntelGraphicsSoftware_*.exe" | Select-Object -First 1 -ExpandProperty Name
+    if ($IntelGraphicsSoftware) {
+        Start-Process "$ExtractPath\Resources\Extras\$IntelGraphicsSoftware" -ArgumentList "/s" -Wait -NoNewWindow
+    }
+
+    Write-Step 'cleaning up bloatware & services'
+    $FileName = "Intel$([char]0xAE) Graphics Software"
+    Remove-ItemProperty -Path "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run" -Name $FileName -ErrorAction SilentlyContinue | Out-Null
+
+    @('IntelGFXFWupdateTool', 'cplspcon', 'CtaChildDriver', 'GSCAuxDriver', 'GSCx64') | ForEach-Object {
+        sc.exe stop $_ | Out-Null
+        sc.exe delete $_ | Out-Null
+    }
+
+    @('IntelGraphicsSoftware', 'PresentMonService') | ForEach-Object { Stop-Process -Name $_ -Force -ErrorAction SilentlyContinue }
+    Start-Sleep -Seconds 2
+    Remove-Item "$env:SystemDrive\Program Files\Intel\Intel Graphics Software\PresentMonService.exe" -Force -ErrorAction SilentlyContinue
+
+    Move-Item -Path "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Intel\Intel Graphics Software\$FileName.lnk" -Destination "$env:ProgramData\Microsoft\Windows\Start Menu\Programs" -Force -ErrorAction SilentlyContinue
+    Remove-Item "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Intel" -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item "$env:SystemDrive\Intel" -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item $ExtractPath -Recurse -Force -ErrorAction SilentlyContinue
+
+    Write-Step 'intel optimizations'
+    $basePath = "HKLM:\System\ControlSet001\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}"
+    Get-ChildItem -Path $basePath -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match '^\d{4}$' } | ForEach-Object {
+        New-Item -Path "$($_.PSPath)\3DKeys" -Force -ErrorAction SilentlyContinue | Out-Null
+    }
+
+    Get-ChildItem -Path $basePath -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -eq "3DKeys" } | ForEach-Object {
+        Set-Reg $_.Name 'Global_AsyncFlipMode' 2
+        Set-Reg $_.Name 'Global_LowLatency' 0
+    }
+
+    Write-Done 'intel driver setup'
+}
+
+$basePath = "HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\MonitorDataStore"
+Get-ChildItem -Path $basePath -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+    Set-Reg $_.Name 'AutoColorManagementEnabled' 0
 }
 
 $GpuMenu = @(
@@ -2180,12 +2377,6 @@ if ((Get-CimInstance Win32_Processor -EA 0).Manufacturer -match 'Intel') {
     Set-Reg $KernelPath 'DisableGatherDataSampling' 1
 } else {
     Remove-ItemProperty -Path $KernelPath -Name 'DisableTSX' -EA 0
-}
-
-# disable auto color management
-$basePath = "HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\MonitorDataStore"
-foreach ($key in (Get-ChildItem -Path $basePath -Recurse -ErrorAction SilentlyContinue)) {
-    cmd /c "reg add `"$($key.Name)`" /v `"AutoColorManagementEnabled`" /t REG_DWORD /d `"0`" /f >nul 2>&1"
 }
 
 Write-Done 'hardware tuning'
