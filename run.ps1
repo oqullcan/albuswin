@@ -3,14 +3,14 @@
 $ErrorActionPreference = 'Stop'
 Clear-Host
 
-# ─── admin elevation ─────────────────────────────────────────────────────────
+# ─── admin elevation
 $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Start-Process powershell.exe -ArgumentList "-NoProfile","-ExecutionPolicy","Bypass","-File","`"$PSCommandPath`"" -Verb RunAs
     exit
 }
 
-# ─── env setup ──────────────────────────────────────────────────────────────
+# ─── env setup
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $InstallPath = "C:\Albus"
@@ -19,7 +19,7 @@ $TempDir     = "$InstallPath\tmp"
 $ZipPath     = "$TempDir\nana.zip"
 $RepoURL     = "https://raw.githubusercontent.com/oqullcan/albuswin/refs/heads/main/albus.ps1"
 
-# ─── ui ─────────────────────────────────────────────────────────────────────
+# ─── ui
 function Status ($Msg, $Type = "info") {
     $colors = @{
         info="Cyan"; done="Green"; warn="Yellow"; fail="Red"; step="Magenta"
@@ -41,7 +41,7 @@ try {
     Status "defender exclusion skipped." "warn"
 }
 
-# ─── optimizing .net runtimes ────────────────────────────────────────────────
+# ─── optimizing .net runtimes
 Status "optimizing .net runtimes..." "info"
 
 try {
@@ -63,7 +63,7 @@ catch {
     Status ".net optimization failed." "warn"
 }
 
-# ─── minsudo installer ───────────────────────────────────────────────────────
+# ─── minsudo installer
 if (-not (Test-Path $MinSudoPath)) {
 
     Status "resolving minsudo release..." "warn"
@@ -121,7 +121,7 @@ if (-not (Test-Path $MinSudoPath)) {
     }
 }
 
-# ─── trustedinstaller ────────────────────────────────────────────────────────
+# ─── trustedinstaller
 Status "loading remote engine..." "info"
 Status "handoff -> trustedinstaller" "step"
 
