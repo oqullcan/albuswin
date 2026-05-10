@@ -2610,73 +2610,199 @@ try {
 # ── edge ──────────────────────────────────────────────────
 Write-Step 'removing microsoft edge'
 
-function Invoke-EdgeUninstallProcess {
-    param([string]$Key)
-    $baseKey      = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate'
-    $registryPath = "$baseKey\ClientState\$Key"
-    if (!(Test-Path $registryPath)) { Write-Step "edge registry key not found: $Key" 'warn'; return }
+function Remove-MicrosoftEdgeAll {
+    $updRoot = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate'
 
-    Remove-ItemProperty -Path $registryPath -Name 'experiment_control_labels' -ErrorAction SilentlyContinue | Out-Null
-
-    try {
-        $folderPath = "$env:SystemRoot\SystemApps\Microsoft.MicrosoftEdge_8wekyb3d8bbwe"
-        if (!(Test-Path $folderPath)) { New-Item -ItemType Directory -Path $folderPath -Force | Out-Null }
-        New-Item -ItemType File -Path $folderPath -Name 'MicrosoftEdge.exe' -Force | Out-Null
-    } catch { Write-Step "failed to create fake microsoftedge.exe: $_" 'warn'; return }
-
-    $env:windir           = ''
-    $uninstallString      = (Get-ItemProperty -Path $registryPath -EA SilentlyContinue).UninstallString
-    $uninstallArguments   = (Get-ItemProperty -Path $registryPath -EA SilentlyContinue).UninstallArguments
-
-    if ([string]::IsNullOrEmpty($uninstallString) -or [string]::IsNullOrEmpty($uninstallArguments)) {
-        Write-Step "cannot find uninstall string for $Key" 'warn'; return
+    Write-Step 'stopping edge processes' 'run'
+    $edgeProcs = @('msedge','MicrosoftEdgeUpdate','MicrosoftEdge','msedgewebview2','setup','identity_helper','msedge_proxy','MicrosoftEdgeUpdateBroker','MicrosoftEdgeUpdateOnDemand','MicrosoftEdgeUpdateComRegisterShell64','msedgeupdate')
+    foreach ($pname in $edgeProcs) {
+        Get-Process -Name $pname -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     }
 
-    $uninstallArguments += ' --force-uninstall --delete-profile'
-    if (!(Test-Path $uninstallString)) { Write-Step "setup.exe not found: $uninstallString" 'warn'; return }
-
-    $spoofPath = "$env:SystemRoot\ImmersiveControlPanel\sihost.exe"
-    try {
-        Copy-Item "$env:SystemRoot\System32\cmd.exe" -Destination $spoofPath -Force
-        $process = Start-Process -FilePath $spoofPath -ArgumentList "/c `"$uninstallString`" $uninstallArguments" -Wait -NoNewWindow -PassThru
-        Write-Step "edge uninstall exit code: $($process.ExitCode)" 'ok'
-    } catch {
-        Write-Step "edge uninstall failed: $_" 'fail'
-    } finally {
-        Remove-Item $spoofPath -Force -ErrorAction SilentlyContinue
+    Write-Step 'disabling edge tasks & services' 'run'
+    @('\MicrosoftEdgeUpdateTaskMachineCore', '\MicrosoftEdgeUpdateTaskMachineUA', '\MicrosoftEdgeUpdateBrowserReplacementTask', '\MicrosoftEdgeUpdateTaskMachineCoreSystem') | ForEach-Object {
+        try { Disable-ScheduledTask -TaskName $_ -ErrorAction SilentlyContinue | Out-Null } catch {}
+        try { Unregister-ScheduledTask -TaskName $_ -Confirm:$false -ErrorAction SilentlyContinue } catch {}
+        $tn = $_.TrimStart('\')
+        $tf = "$env:windir\System32\Tasks\$tn"
+        if (Test-Path $tf) {
+            Remove-Item -Path $tf -Force -ErrorAction SilentlyContinue
+        }
     }
-}
 
-function Remove-Edge {
+    @('edgeupdate','edgeupdatem','MicrosoftEdgeElevationService') | ForEach-Object {
+        try { Stop-Service -Name $_ -Force -ErrorAction SilentlyContinue } catch {}
+        & sc.exe config $_ start= disabled 2>&1 | Out-Null
+        & sc.exe delete $_ 2>&1 | Out-Null
+    }
+
+    [Microsoft.Win32.Registry]::SetValue('HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdateDev', 'AllowUninstall', 1, [Microsoft.Win32.RegistryValueKind]::DWord)
     Remove-ItemProperty -Path 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft Edge' -Name 'NoRemove' -ErrorAction SilentlyContinue | Out-Null
-    [Microsoft.Win32.Registry]::SetValue('HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdateDev', 'AllowUninstall', 1, [Microsoft.Win32.RegistryValueKind]::DWord) | Out-Null
-
-    Invoke-EdgeUninstallProcess -Key '{56EB18F8-B008-4CBD-B6D2-8C97FE7E9062}'
-
-    @("$env:ProgramData\Microsoft\Windows\Start Menu\Programs",
-      "$env:Public\Desktop",
-      "$env:UserProfile\Desktop") | ForEach-Object {
-        $lnk = Join-Path $_ 'Microsoft Edge.lnk'
-        if (Test-Path $lnk) { Remove-Item $lnk -Force -ErrorAction SilentlyContinue }
-    }
-}
-
-function Remove-WebView {
-    Remove-ItemProperty -Path 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft EdgeWebView' -Name 'NoRemove' -ErrorAction SilentlyContinue | Out-Null
-    Invoke-EdgeUninstallProcess -Key '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
-}
-
-function Remove-EdgeUpdate {
     Remove-ItemProperty -Path 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft Edge Update' -Name 'NoRemove' -ErrorAction SilentlyContinue | Out-Null
-    $registryPath   = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate'
-    $uninstallCmd   = (Get-ItemProperty -Path $registryPath -EA SilentlyContinue).UninstallCmdLine
-    if ([string]::IsNullOrEmpty($uninstallCmd)) { Write-Step 'edge update uninstall string not found' 'warn'; return }
-    Start-Process cmd.exe "/c $uninstallCmd" -WindowStyle Hidden -Wait
+    Remove-ItemProperty -Path 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft EdgeWebView' -Name 'NoRemove' -ErrorAction SilentlyContinue | Out-Null
+
+    Write-Step 'removing edge appx packages' 'run'
+    $edgePkg = Get-AppxPackage -AllUsers -Name 'Microsoft.MicrosoftEdge*' -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike '*WebView*' }
+    foreach ($pkg in $edgePkg) {
+        try { Remove-AppxPackage -Package $pkg.PackageFullName -AllUsers -ErrorAction SilentlyContinue | Out-Null } catch {}
+    }
+
+    Write-Step 'executing edge uninstaller' 'run'
+    $edgeDirs = @("$env:ProgramFiles\Microsoft\Edge", "${env:ProgramFiles(x86)}\Microsoft\Edge")
+    foreach ($d in $edgeDirs) {
+        if ($d -and (Test-Path $d)) {
+            $appDir = Join-Path $d 'Application'
+            if (Test-Path $appDir) {
+                $ver = Get-ChildItem $appDir -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^\d+\.' } | Select-Object -First 1
+                if ($ver) {
+                    $setupExe = Join-Path $ver.FullName 'Installer\setup.exe'
+                    if (Test-Path $setupExe) {
+                        Start-Process $setupExe -ArgumentList '--uninstall --system-level --verbose-logging --force-uninstall' -Wait -NoNewWindow -ErrorAction SilentlyContinue | Out-Null
+                    }
+                }
+            }
+        }
+    }
+
+    $csPaths = @("$updRoot\ClientState\{56EB18F8-B008-4CBD-B6D2-8C97FE7E9062}", "$updRoot\ClientState\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}")
+    foreach ($csPath in $csPaths) {
+        if (Test-Path $csPath) {
+            Remove-ItemProperty -Path $csPath -Name 'experiment_control_labels' -ErrorAction SilentlyContinue | Out-Null
+            $fakeDir = "$env:SystemRoot\SystemApps\Microsoft.MicrosoftEdge_8wekyb3d8bbwe"
+            if (!(Test-Path $fakeDir)) { New-Item -ItemType Directory -Path $fakeDir -Force -ErrorAction SilentlyContinue | Out-Null }
+            New-Item -ItemType File -Path "$fakeDir\MicrosoftEdge.exe" -Force -ErrorAction SilentlyContinue | Out-Null
+            
+            $prevWinDir = $env:windir; $env:windir = ''
+            $exe = (Get-ItemProperty -Path $csPath -ErrorAction SilentlyContinue).UninstallString
+            $uargs = (Get-ItemProperty -Path $csPath -ErrorAction SilentlyContinue).UninstallArguments
+            
+            if ($exe -and $uargs -and (Test-Path $exe)) {
+                $uargs += ' --force-uninstall --delete-profile'
+                $spoofPath = "$env:SystemRoot\ImmersiveControlPanel\sihost.exe"
+                try {
+                    if (!(Test-Path "$env:SystemRoot\ImmersiveControlPanel")) { New-Item -ItemType Directory -Path "$env:SystemRoot\ImmersiveControlPanel" -Force -ErrorAction SilentlyContinue | Out-Null }
+                    Copy-Item "$env:SystemRoot\System32\cmd.exe" -Destination $spoofPath -Force -ErrorAction SilentlyContinue
+                    Start-Process -FilePath $spoofPath -ArgumentList "/c `"$exe`" $uargs" -Wait -NoNewWindow -ErrorAction SilentlyContinue | Out-Null
+                } finally {
+                    Remove-Item $spoofPath -Force -ErrorAction SilentlyContinue
+                }
+            }
+            $env:windir = $prevWinDir
+        }
+    }
+
+    $unCmd = (Get-ItemProperty -Path $updRoot -ErrorAction SilentlyContinue).UninstallCmdLine
+    if ($unCmd) {
+        Start-Process cmd.exe -ArgumentList "/c $unCmd" -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue | Out-Null
+    }
+
+    foreach ($pname in $edgeProcs) {
+        Get-Process -Name $pname -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    }
+
+    Write-Step 'cleaning up shortcuts & files' 'run'
+    $desktopPaths = @("$env:ProgramData\Microsoft\Windows\Start Menu\Programs","$env:PUBLIC\Desktop")
+    Get-ChildItem 'C:\Users' -Directory -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin @('Public','Default','Default User','All Users','WDAGUtilityAccount') } | ForEach-Object {
+        $desktopPaths += (Join-Path $_.FullName 'Desktop')
+    }
+    foreach ($p in $desktopPaths) {
+        Remove-Item (Join-Path $p 'Microsoft Edge.lnk') -Force -ErrorAction SilentlyContinue
+    }
+
+    $edgeUpdateDirs = @(
+        "$env:ProgramFiles\Microsoft\EdgeUpdate", "${env:ProgramFiles(x86)}\Microsoft\EdgeUpdate",
+        "$env:ProgramFiles\Microsoft\EdgeCore", "${env:ProgramFiles(x86)}\Microsoft\EdgeCore"
+    )
+    foreach ($d in ($edgeDirs + $edgeUpdateDirs)) {
+        if ($d -and (Test-Path $d)) { Remove-Item -Path $d -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    Get-ChildItem 'C:\Users' -Directory -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin @('Public','Default','Default User','All Users','WDAGUtilityAccount') } | ForEach-Object {
+        foreach ($sub in @('Microsoft\Edge','Microsoft\EdgeUpdate','Microsoft\EdgeCore','Microsoft\EdgeWebView')) {
+            $p = Join-Path $_.FullName "AppData\Local\$sub"
+            if (Test-Path $p) { Remove-Item -Path $p -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+    }
+
+    Write-Step 'purging edge registry keys' 'run'
+    foreach ($k in @(
+        'HKLM:\SOFTWARE\Microsoft\Edge', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Edge',
+        'HKLM:\SOFTWARE\Microsoft\EdgeUpdate', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate',
+        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft Edge',
+        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft Edge Update',
+        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft EdgeWebView',
+        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft Edge',
+        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft Edge Update'
+    )) {
+        if (Test-Path $k) { Remove-Item -Path $k -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    $liveUserKeys = @()
+    try {
+        if (-not (Get-PSDrive -Name HKU -ErrorAction SilentlyContinue)) {
+            New-PSDrive -Name HKU -PSProvider Registry -Root HKEY_USERS | Out-Null
+        }
+        $liveUserKeys = Get-ChildItem -Path 'Registry::HKU' -ErrorAction SilentlyContinue | Where-Object {
+            ($_.PSChildName -match '^S-1-5-21-' -and $_.PSChildName -notmatch '_Classes$') -or $_.PSChildName -match '^Albus_UserHive_'
+        }
+    } catch {}
+
+    foreach ($userKey in $liveUserKeys) {
+        $sid = $userKey.PSChildName
+        $hivePath = "Registry::HKU\$sid"
+        $appData = $null
+        if ($sid -match '^Albus_UserHive_') {
+            $appData = "$env:SystemDrive\Users\Default\AppData\Roaming"
+        } else {
+            try {
+                $sf = "$hivePath\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders"
+                $appData = (Get-ItemProperty -Path $sf -Name 'AppData' -ErrorAction SilentlyContinue).AppData
+            } catch {}
+            if ([string]::IsNullOrEmpty($appData) -or -not (Test-Path $appData)) {
+                try {
+                    $profileList = "Registry::HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$sid"
+                    $profPath = (Get-ItemProperty -Path $profileList -Name 'ProfileImagePath' -ErrorAction SilentlyContinue).ProfileImagePath
+                    if ($profPath -and (Test-Path $profPath)) { $appData = Join-Path $profPath 'AppData\Roaming' }
+                } catch {}
+            }
+        }
+        if (-not [string]::IsNullOrEmpty($appData) -and (Test-Path $appData)) {
+            $taskBarDir = Join-Path $appData 'Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar'
+            if (Test-Path $taskBarDir) {
+                Get-ChildItem -Path $taskBarDir -File -Force -ErrorAction SilentlyContinue | Where-Object {
+                    $_.Name -match '^Microsoft Edge.*\.lnk$' -or $_.Name -ieq 'Edge.lnk'
+                } | Remove-Item -Force -ErrorAction SilentlyContinue
+            }
+            $implicitDir = Join-Path $taskBarDir 'ImplicitAppShortcuts'
+            if (Test-Path $implicitDir) {
+                Get-ChildItem -Path $implicitDir -Recurse -Force -ErrorAction SilentlyContinue | Where-Object {
+                    $_.Name -match '^Microsoft Edge.*\.lnk$' -or $_.Name -ieq 'Edge.lnk'
+                } | Remove-Item -Force -ErrorAction SilentlyContinue
+            }
+        }
+        $taskband = "$hivePath\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Taskband"
+        if (Test-Path $taskband) {
+            try { Remove-ItemProperty -Path $taskband -Name 'Favorites' -Force -ErrorAction SilentlyContinue } catch {}
+            try { Remove-ItemProperty -Path $taskband -Name 'FavoritesResolve' -Force -ErrorAction SilentlyContinue } catch {}
+            try { Remove-ItemProperty -Path $taskband -Name 'Pinned' -Force -ErrorAction SilentlyContinue } catch {}
+            try { Set-ItemProperty -Path $taskband -Name 'FavoritesChanges' -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue } catch {}
+        }
+        $auxPins = "$taskband\AuxilliaryPins"
+        if (Test-Path $auxPins) {
+            try { Set-ItemProperty -Path $auxPins -Name 'EdgePin' -Value 0 -Type DWord -Force -ErrorAction SilentlyContinue } catch {}
+        }
+    }
+
+    try {
+        $sig = '[DllImport("shell32.dll")] public static extern void SHChangeNotify(int wEventId, uint uFlags, IntPtr dwItem1, IntPtr dwItem2);'
+        $type = Add-Type -MemberDefinition $sig -Name 'AlbusShellRefresh' -Namespace 'Albus' -PassThru -ErrorAction SilentlyContinue
+        if ($type) { $type::SHChangeNotify(0x08000000, 0x1000, [IntPtr]::Zero, [IntPtr]::Zero) }
+    } catch {}
+
+    Write-Step 'edge completely removed' 'ok'
 }
 
-Remove-Edge
-Remove-WebView
-Remove-EdgeUpdate
+Remove-MicrosoftEdgeAll
 
 # ── onedrive ──────────────────────────────────────────────
 Write-Step 'removing onedrive'
