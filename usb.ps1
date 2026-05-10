@@ -1,7 +1,9 @@
+#Requires -RunAsAdministrator
+
 $ErrorActionPreference = 'Stop'
 Clear-Host
 
-# ─── status engine ────────────────────────────────────────────────────────────
+# ─── status engine
 function status ($msg, $type = "info") {
     $prefix, $color = switch ($type) {
         "info"  { "info", "Cyan"    }
@@ -19,10 +21,9 @@ function status ($msg, $type = "info") {
 $host.UI.RawUI.WindowTitle = "albus usb creator"
 status "initializing ventoy & albus usb automatic builder..." "step"
 
-# ─── 1. usb detection (wmi - robust) ─────────────────────────────────────────
+# ─── usb detection (wmi - robust) 
 status "scanning for removable usb drives..." "info"
 
-# DriveType=2 => Removable  |  Win32_LogicalDisk is reliable across all win versions
 $WmiDisks = Get-WmiObject Win32_LogicalDisk | Where-Object { $_.DriveType -eq 2 -and $_.DeviceID -ne $null }
 
 if (-not $WmiDisks -or @($WmiDisks).Count -eq 0) {
@@ -35,7 +36,6 @@ if (-not $WmiDisks -or @($WmiDisks).Count -eq 0) {
 
 Write-Host ""
 
-# build display table
 $TableData = @($WmiDisks) | ForEach-Object {
     $letter  = $_.DeviceID.Replace(":", "")
     $label   = if ($_.VolumeName) { $_.VolumeName } else { "(no label)" }
@@ -69,7 +69,7 @@ if ($confirm.ToLower() -ne 'yes') {
     Exit
 }
 
-# ─── 2. download ventoy ───────────────────────────────────────────────────────
+# ─── download ventoy
 status "fetching latest ventoy release from github..." "step"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
@@ -106,7 +106,7 @@ if (-not $V2D) {
     Pause; Exit
 }
 
-# ─── 3. install ventoy ────────────────────────────────────────────────────────
+# ─── install ventoy 
 status "installing ventoy to drive ${DriveLetter}:\ ..." "step"
 $Process = Start-Process -FilePath $V2D.FullName `
     -ArgumentList "VTOYCLI /I /Drive:${DriveLetter}" `
@@ -119,7 +119,6 @@ if ($Process.ExitCode -notin @(0, $null)) {
 status "waiting for ventoy volume to initialize..." "info"
 Start-Sleep -Seconds 15
 
-# re-scan volumes after install
 $VentoyVol = Get-WmiObject Win32_LogicalDisk |
     Where-Object { $_.VolumeName -match "(?i)ventoy" -or $_.VolumeName -match "(?i)vtoy" } |
     Select-Object -First 1
@@ -132,7 +131,7 @@ if (-not $VentoyVol) {
     status "ventoy volume found at $BuildDir" "done"
 }
 
-# ─── 4. write albus config ────────────────────────────────────────────────────
+# ─── write albus config 
 status "writing albus zero-touch configuration..." "step"
 
 New-Item -Path "$BuildDir\ventoy"       -ItemType Directory -Force | Out-Null
@@ -220,39 +219,39 @@ $AutoUnattendXml = @'
         <component name="Microsoft-Windows-Deployment" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
             <RunSynchronous>
                 <RunSynchronousCommand wcm:action="add"><Order>1</Order><Path>net accounts /maxpwage:unlimited</Path></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>2</Order><Path>reg add "HKU\.DEFAULT\Software\Policies\Microsoft\Windows\DriverSearching" /v "DontPromptForWindowsUpdate" /t REG_DWORD /d "1" /f</Path></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>3</Order><Path>reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\DriverSearching" /v "DontPromptForWindowsUpdate" /t REG_DWORD /d "1" /f</Path></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>4</Order><Path>reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\DriverSearching" /v "SearchOrderConfig" /t REG_DWORD /d 0 /f</Path></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>5</Order><Path>reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "ExcludeWUDriversInQualityUpdate" /t REG_DWORD /d "1" /f</Path></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>6</Order><Path>reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Device Metadata" /v "PreventDeviceMetadataFromNetwork" /t REG_DWORD /d "1" /f</Path></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>7</Order><Path>reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\Device Metadata" /v "PreventDeviceMetadataFromNetwork" /t REG_DWORD /d "1" /f</Path></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>8</Order><Path>reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v "NoAutoUpdate" /t REG_DWORD /d "1" /f</Path></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>9</Order><Path>reg add "HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v "FlightSettingsMaxPauseDays" /t REG_DWORD /d "5269" /f</Path></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>10</Order><Path>reg add "HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v "PauseFeatureUpdatesStartTime" /t REG_SZ /d "2023-08-17T12:47:51Z" /f</Path></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>11</Order><Path>reg add "HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v "PauseFeatureUpdatesEndTime" /t REG_SZ /d "2038-01-19T03:14:07Z" /f</Path></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>12</Order><Path>reg add "HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v "PauseQualityUpdatesStartTime" /t REG_SZ /d "2023-08-17T12:47:51Z" /f</Path></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>13</Order><Path>reg add "HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v "PauseQualityUpdatesEndTime" /t REG_SZ /d "2038-01-19T03:14:07Z" /f</Path></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>14</Order><Path>reg add "HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v "PauseUpdatesStartTime" /t REG_SZ /d "2023-08-17T12:47:51Z" /f</Path></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>15</Order><Path>reg add "HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v "PauseUpdatesExpiryTime" /t REG_SZ /d "2038-01-19T03:14:07Z" /f</Path></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>16</Order><Path>reg add "HKLM\SYSTEM\ControlSet001\Services\DiagTrack" /v "Start" /t REG_DWORD /d "4" /f</Path></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>17</Order><Path>reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection" /v "AllowTelemetry" /t REG_DWORD /d "0" /f</Path></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>18</Order><Path>reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection" /v "AllowTelemetry" /t REG_DWORD /d "0" /f</Path></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>19</Order><Path>reg add "HKLM\SYSTEM\ControlSet001\Control\Session Manager" /v "DisableWpbtExecution" /t REG_DWORD /d "1" /f</Path></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>20</Order><Path>reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Communications" /v "ConfigureChatAutoInstall" /t REG_DWORD /d "0" /f</Path></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>21</Order><Path>reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Chat" /v "ChatIcon" /t REG_DWORD /d "2" /f</Path></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>22</Order><Path>reg add "HKLM\SYSTEM\ControlSet001\Control\BitLocker" /v "PreventDeviceEncryption" /t REG_DWORD /d "1" /f</Path></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>23</Order><Path>reg add "HKLM\SYSTEM\ControlSet001\Control\CI\Policy" /v "VerifiedAndReputablePolicyState" /t REG_DWORD /d "0" /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>2</Order><Path>Reg.exe add "HKU\.DEFAULT\Software\Policies\Microsoft\Windows\DriverSearching" /v "DontPromptForWindowsUpdate" /t REG_DWORD /d "1" /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>3</Order><Path>Reg.exe add "HKLM\SOFTWARE\Policies\Microsoft\Windows\DriverSearching" /v "DontPromptForWindowsUpdate" /t REG_DWORD /d "1" /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>4</Order><Path>Reg.exe add "HKLM\SOFTWARE\Policies\Microsoft\Windows\DriverSearching" /v "SearchOrderConfig" /t REG_DWORD /d 0 /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>5</Order><Path>Reg.exe add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v "ExcludeWUDriversInQualityUpdate" /t REG_DWORD /d "1" /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>6</Order><Path>Reg.exe add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Device Metadata" /v "PreventDeviceMetadataFromNetwork" /t REG_DWORD /d "1" /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>7</Order><Path>Reg.exe add "HKLM\SOFTWARE\Policies\Microsoft\Windows\Device Metadata" /v "PreventDeviceMetadataFromNetwork" /t REG_DWORD /d "1" /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>8</Order><Path>Reg.exe add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v "NoAutoUpdate" /t REG_DWORD /d "1" /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>9</Order><Path>Reg.exe add "HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v "FlightSettingsMaxPauseDays" /t REG_DWORD /d "5269" /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>10</Order><Path>Reg.exe add "HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v "PauseFeatureUpdatesStartTime" /t REG_SZ /d "2023-08-17T12:47:51Z" /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>11</Order><Path>Reg.exe add "HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v "PauseFeatureUpdatesEndTime" /t REG_SZ /d "2038-01-19T03:14:07Z" /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>12</Order><Path>Reg.exe add "HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v "PauseQualityUpdatesStartTime" /t REG_SZ /d "2023-08-17T12:47:51Z" /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>13</Order><Path>Reg.exe add "HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v "PauseQualityUpdatesEndTime" /t REG_SZ /d "2038-01-19T03:14:07Z" /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>14</Order><Path>Reg.exe add "HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v "PauseUpdatesStartTime" /t REG_SZ /d "2023-08-17T12:47:51Z" /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>15</Order><Path>Reg.exe add "HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" /v "PauseUpdatesExpiryTime" /t REG_SZ /d "2038-01-19T03:14:07Z" /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>16</Order><Path>Reg.exe add "HKLM\SYSTEM\ControlSet001\Services\DiagTrack" /v "Start" /t REG_DWORD /d "4" /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>17</Order><Path>Reg.exe add "HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection" /v "AllowTelemetry" /t REG_DWORD /d "0" /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>18</Order><Path>Reg.exe add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection" /v "AllowTelemetry" /t REG_DWORD /d "0" /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>19</Order><Path>Reg.exe add "HKLM\SYSTEM\ControlSet001\Control\Session Manager" /v "DisableWpbtExecution" /t REG_DWORD /d "1" /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>20</Order><Path>Reg.exe add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Communications" /v "ConfigureChatAutoInstall" /t REG_DWORD /d "0" /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>21</Order><Path>Reg.exe add "HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Chat" /v "ChatIcon" /t REG_DWORD /d "2" /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>22</Order><Path>Reg.exe add "HKLM\SYSTEM\ControlSet001\Control\BitLocker" /v "PreventDeviceEncryption" /t REG_DWORD /d "1" /f</Path></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>23</Order><Path>Reg.exe add "HKLM\SYSTEM\ControlSet001\Control\CI\Policy" /v "VerifiedAndReputablePolicyState" /t REG_DWORD /d "0" /f</Path></RunSynchronousCommand>
             </RunSynchronous>
         </component>
     </settings>
     <settings pass="windowsPE">
         <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
             <RunSynchronous>
-                <RunSynchronousCommand wcm:action="add"><Order>1</Order><Path>reg add "HKLM\SYSTEM\Setup\LabConfig" /v "BypassTPMCheck" /t REG_DWORD /d 1 /f</Path><Description>Add BypassTPMCheck</Description></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>2</Order><Path>reg add "HKLM\SYSTEM\Setup\LabConfig" /v "BypassRAMCheck" /t REG_DWORD /d 1 /f</Path><Description>Add BypassRAMCheck</Description></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>3</Order><Path>reg add "HKLM\SYSTEM\Setup\LabConfig" /v "BypassSecureBootCheck" /t REG_DWORD /d 1 /f</Path><Description>Add BypassSecureBootCheck</Description></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>4</Order><Path>reg add "HKLM\SYSTEM\Setup\LabConfig" /v "BypassCPUCheck" /t REG_DWORD /d 1 /f</Path><Description>Add BypassCPUCheck</Description></RunSynchronousCommand>
-                <RunSynchronousCommand wcm:action="add"><Order>5</Order><Path>reg add "HKLM\SYSTEM\Setup\LabConfig" /v "BypassStorageCheck" /t REG_DWORD /d 1 /f</Path><Description>Add BypassStorageCheck</Description></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>1</Order><Path>Reg.exe add "HKLM\SYSTEM\Setup\LabConfig" /v "BypassTPMCheck" /t REG_DWORD /d 1 /f</Path><Description>Add BypassTPMCheck</Description></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>2</Order><Path>Reg.exe add "HKLM\SYSTEM\Setup\LabConfig" /v "BypassRAMCheck" /t REG_DWORD /d 1 /f</Path><Description>Add BypassRAMCheck</Description></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>3</Order><Path>Reg.exe add "HKLM\SYSTEM\Setup\LabConfig" /v "BypassSecureBootCheck" /t REG_DWORD /d 1 /f</Path><Description>Add BypassSecureBootCheck</Description></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>4</Order><Path>Reg.exe add "HKLM\SYSTEM\Setup\LabConfig" /v "BypassCPUCheck" /t REG_DWORD /d 1 /f</Path><Description>Add BypassCPUCheck</Description></RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add"><Order>5</Order><Path>Reg.exe add "HKLM\SYSTEM\Setup\LabConfig" /v "BypassStorageCheck" /t REG_DWORD /d 1 /f</Path><Description>Add BypassStorageCheck</Description></RunSynchronousCommand>
             </RunSynchronous>
             <Diagnostics>
                 <OptIn>false</OptIn>
@@ -274,7 +273,7 @@ $AutoUnattendXml = @'
 '@
 $AutoUnattendXml | Set-Content -Path "$BuildDir\ventoy\albus\autounattend.xml" -Encoding UTF8
 
-# ─── 5. finish ────────────────────────────────────────────────────────────────
+# ─── finish
 Write-Host ""
 status "operation completed successfully." "done"
 status "ventoy & albus usb is ready for deployment." "done"
@@ -285,7 +284,7 @@ if ($VentoyVol) {
     status "config saved to: $BuildDir  ->  move folders to your ventoy root manually." "info"
 }
 
-# ─── 6. cleanup ───────────────────────────────────────────────────────────────
+# ─── cleanup
 Write-Host ""
 status "cleaning up temporary files..." "info"
 @($Zip, $Extract) | ForEach-Object {
@@ -293,7 +292,6 @@ status "cleaning up temporary files..." "info"
 }
 $LocalFallback = "$PSScriptRoot\ventoy-albus-usb"
 if (-not $VentoyVol -and (Test-Path $LocalFallback)) {
-    # keep it - user needs to move it manually
 } elseif (Test-Path $LocalFallback) {
     Remove-Item $LocalFallback -Recurse -Force -ErrorAction SilentlyContinue
 }
