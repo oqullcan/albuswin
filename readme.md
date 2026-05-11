@@ -1,9 +1,9 @@
-# albus
+# albuswin | [discord](https://www.discord.com/invite/a4A3hhZReW)
 
 my main os is linux ([omarchy](https://github.com/basecamp/omarchy)).
 this exists because i switch to windows to play cs2 and i want the
 os to stay out of the way. it runs once, reboots, done.
-
+ 
 ## usage
 
 **playbook** — run elevated:
