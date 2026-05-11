@@ -3076,18 +3076,109 @@ Write-Done 'startup cleanup'
 
 Write-Phase 'cleanup'
 
-Remove-Item "$env:UserProfile\AppData\Local\Temp\*" -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
-Remove-Item "$env:SystemDrive\Windows\Temp\*" -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
-Remove-Item "$env:SystemDrive\inetpub" -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
-Remove-Item "$env:SystemDrive\PerfLogs" -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
-Remove-Item "$env:SystemDrive\XboxGames" -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
-Remove-Item "$env:SystemDrive\Windows.old" -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
-Remove-Item "$env:SystemDrive\DumpStack.log" -Force -ErrorAction SilentlyContinue | Out-Null
-Remove-Item "C:\Albus" -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
-Start-Process cleanmgr.exe -ArgumentList '/autoclean /d C:' -Wait -NoNewWindow
+Write-Step 'releasing file locks'
+try {
+    @('wuauserv', 'bits', 'appidsvc', 'dps', 'cryptsvc', 'DoSvc') | ForEach-Object {
+        Stop-Service -Name $_ -Force -ErrorAction SilentlyContinue | Out-Null
+    }
+} catch { }
 
-cmd /c "cd /d %systemroot%\system32 && lodctr /R >nul 2>&1"
-cmd /c "cd /d %systemroot%\sysWOW64 && lodctr /R >nul 2>&1"
+Write-Step 'disabling reserved storage'
+try {
+    Set-WindowsReservedStorageState -State Disabled -WarningAction SilentlyContinue -ErrorAction Stop | Out-Null
+} catch {
+    Write-Step 'reserved storage in use — skipped' 'warn'
+}
+
+Write-Step 'deep cleaning cache & temp directories'
+$pathsToClean = @(
+    "$env:UserProfile\AppData\Local\Temp\*",
+    "$env:UserProfile\AppData\Local\Microsoft\Windows\INetCache\*",
+    "$env:UserProfile\AppData\Local\Microsoft\Windows\WebCache\*",
+    "$env:UserProfile\AppData\Local\D3DSCache\*",
+    "$env:SystemDrive\Windows\Temp\*",
+    "$env:SystemDrive\inetpub",
+    "$env:SystemDrive\PerfLogs",
+    "$env:SystemDrive\XboxGames",
+    "$env:SystemDrive\Windows.old",
+    "$env:SystemDrive\$Recycle.Bin\*",
+    "$env:SystemDrive\DumpStack.log",
+    "$env:SystemRoot\CbsTemp\*",
+    "$env:SystemRoot\Logs\*",
+    "$env:SystemRoot\SoftwareDistribution\Download\*",
+    "$env:SystemRoot\SoftwareDistribution\DataStore\*",
+    "$env:SystemRoot\System32\LogFiles\*",
+    "$env:SystemRoot\System32\SleepStudy\*",
+    "$env:SystemRoot\System32\sru\*",
+    "$env:SystemRoot\System32\WDI\LogFiles\*",
+    "$env:SystemRoot\System32\winevt\Logs\*",
+    "$env:SystemRoot\SystemTemp\*",
+    "$env:SystemRoot\Temp\*",
+    "${env:ProgramFiles(x86)}\Microsoft\EdgeUpdate\Download\*"
+)
+
+foreach ($path in $pathsToClean) {
+    try {
+        Remove-Item -Path $path -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
+    } catch { }
+}
+
+try {
+    Get-ChildItem -Path "C:\Albus" -ErrorAction SilentlyContinue | 
+        Where-Object { $_.Name -notmatch '(?i)^minsudo|^albus\.log$' } | 
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
+} catch { }
+
+Write-Step 'clearing all event logs autonomously'
+try {
+    $oldErr = $ErrorActionPreference
+    $ErrorActionPreference = 'SilentlyContinue'
+    wevtutil el | ForEach-Object { wevtutil cl "$_" 2>$null }
+    $ErrorActionPreference = $oldErr
+} catch { }
+
+Write-Step 'configuring disk cleanup parameters'
+try {
+    $volumeCache = @(
+        'Active Setup Temp Folders', 'BranchCache', 'Delivery Optimization Files',
+        'Device Driver Packages', 'Downloaded Program Files', 'Internet Cache Files',
+        'Language Pack', 'Offline Pages Files', 'Old ChkDsk Files', 'Setup Log Files',
+        'System error memory dump files', 'System error minidump files',
+        'Temporary Setup Files', 'Temporary Sync Files', 'Update Cleanup',
+        'Upgrade Discarded Files', 'User file versions', 'Windows Defender',
+        'Windows Error Reporting Files', 'Windows Reset Log Files', 'Windows Upgrade Log Files'
+    )
+    $registryPath = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\VolumeCaches'
+    foreach ($item in $volumeCache) {
+        Set-Reg "$registryPath\$item" 'StateFlags1337' 2
+    }
+} catch { }
+
+Write-Step 'executing automated disk cleanup'
+try {
+    Start-Process cleanmgr.exe -ArgumentList '/sagerun:1337' -Wait -NoNewWindow
+    Start-ScheduledTask -TaskPath '\Microsoft\Windows\DiskCleanup\' -TaskName 'SilentCleanup' -ErrorAction SilentlyContinue | Out-Null
+} catch { }
+
+Write-Step 'flushing dns & resetting network cache'
+try {
+    $oldErr = $ErrorActionPreference
+    $ErrorActionPreference = 'SilentlyContinue'
+    ipconfig /flushdns 2>$null | Out-Null
+    arp -d * 2>$null | Out-Null
+    $ErrorActionPreference = $oldErr
+} catch { }
+
+Write-Step 'rebuilding performance counters'
+try {
+    $oldErr = $ErrorActionPreference
+    $ErrorActionPreference = 'SilentlyContinue'
+    Set-Location -Path "$env:SystemRoot\system32"
+    lodctr /R 2>$null | Out-Null
+    Set-Location -Path "$env:SystemRoot\sysWOW64"
+    lodctr /R 2>$null | Out-Null
+    $ErrorActionPreference = $oldErr
+} catch { }
 
 Write-Done 'cleanup'
 
