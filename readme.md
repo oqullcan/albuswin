@@ -1,6 +1,6 @@
 # albus
 
-my main os is linux ([omarchy](https://github.com/oqullcan/omarchy)).
+my main os is linux ([omarchy](https://github.com/basecamp/omarchy)).
 this exists because i switch to windows to play cs2 and i want the
 os to stay out of the way. it runs once, reboots, done.
 
