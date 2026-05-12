@@ -1,6 +1,8 @@
 # albuswin
 
-my main os is [omarchy](https://github.com/basecamp/omarchy).
+a windows optimization script.
+
+**note**: my main os is [omarchy](https://github.com/basecamp/omarchy).
 this exists because i switch to windows to play cs2 and i want the
 os to stay out of the way. it runs once, reboots, done.
 
