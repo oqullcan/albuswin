@@ -1,29 +1,25 @@
 # albuswin
-
 a windows optimization script.
 
 **note**: my main os is [omarchy](https://github.com/basecamp/omarchy).
 this exists because i switch to windows to play cs2 and i want the
 os to stay out of the way. it runs once, reboots, done.
 
-discuss & contribute: [discord](https://www.discord.com/invite/a4A3hhZReW)
+discuss & contribute: [discord](https://www.discord.com/invite/a4A3hhZReW) - main hub for this and likely future projects (maybe [2singals](https://www.github.com/2signals)) ty.
 
 ## usage
-
 **playbook** — run elevated:
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/oqullcan/albuswin/refs/heads/main/run.ps1)))
+irm https://raw.githubusercontent.com/oqullcan/albuswin/refs/heads/main/run.ps1 | iex
 ```
 
 **install media** — ventoy usb with autounattend, bypasses tpm/oobe:
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/oqullcan/albuswin/refs/heads/main/usb.ps1)))
+irm https://raw.githubusercontent.com/oqullcan/albuswin/refs/heads/main/usb.ps1 | iex
 ```
 
 ## what it does
-
 runs as `TrustedInstaller`. ~3000 lines of powershell. one pass, then reboot.
-leaves only `AlbusX.exe` (service) and `albus.log` on disk.
 
 - **software** — installs brave, 7-zip, vc++ redistributables, directx
 - **gpu** — strips driver package to essentials, silent install. nvidia: profile inspector preset applied
@@ -41,5 +37,4 @@ leaves only `AlbusX.exe` (service) and `albus.log` on disk.
 - **cleanup** — clears all startup entries, temp directories, reboots
 
 ## reversion
-
 no rollback. reinstall windows using the usb creator.
