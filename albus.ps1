@@ -2932,10 +2932,7 @@ foreach ($bin in $purgeBinaries) {
 # ── dism package purge ────────────────────────────────────
 Write-Step 'querying installed dism packages'
 
-$allPackages = dism /Online /Get-Packages 2>$null |
-    Where-Object { $_ -match '^\s*Package Identity\s*:' } |
-    ForEach-Object { ($_ -split ':\s*', 2)[1].Trim() }
-
+$allPackages = Get-WindowsPackage -Online -ErrorAction SilentlyContinue
 Write-Step "total packages found: $($allPackages.Count)" 'ok'
 
 $dismTargets = @(
@@ -2957,21 +2954,21 @@ $dismTargets = @(
     'Windows-Ribbons', 'PhotoBasic', 'shimgvw'
 )
 
+$targetRegex = '(?i)' + ($dismTargets -join '|')
+$matchedPackages = $allPackages | Where-Object { $_.PackageName -match $targetRegex }
 $removedCount = 0
 
-foreach ($target in $dismTargets) {
-    $matched = $allPackages | Where-Object { $_ -match $target }
-    if (-not $matched) { continue }
-    foreach ($pkg in $matched) {
-        Write-Step "removing: $($pkg.Split('~')[0].ToLower())" 'run'
-        $r = Start-Process dism `
-            -ArgumentList "/Online /Remove-Package /PackageName:$pkg /NoRestart /Quiet" `
-            -Wait -NoNewWindow -PassThru
-        if ($r.ExitCode -eq 0) {
-            Write-Step "removed: $($pkg.Split('~')[0].ToLower())" 'ok'
+if ($matchedPackages) {
+    foreach ($pkg in $matchedPackages) {
+        $shortName = $pkg.PackageName.Split('~')[0].ToLower()
+        Write-Step "removing: $shortName" 'run'
+        
+        try {
+            Remove-WindowsPackage -Online -PackageName $pkg.PackageName -NoRestart -ErrorAction Stop | Out-Null
+            Write-Step "removed: $shortName" 'ok'
             $removedCount++
-        } else {
-            Write-Step "skip: $($pkg.Split('~')[0].ToLower())" 'warn'
+        } catch {
+            Write-Step "skip: $shortName" 'warn'
         }
     }
 }
