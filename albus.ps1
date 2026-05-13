@@ -1939,6 +1939,8 @@ $config = @(
     @{ Name = 'dam';                                      Start = 4 }
     # condrv needs auto
     @{ Name = 'condrv';                                   Start = 2 }
+    # .
+    @{ Name = 'uhssvc';                                   Start = 2 }
 )
 
 $groups = @{
@@ -3030,12 +3032,35 @@ Write-Done 'telemetry & ai purge'
 
 # ── misc ──────────────────────────────────────────────────
 Write-Step 'removing update health tools & gameinput'
-Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
-    Where-Object { $_.DisplayName -match 'Update for x64-based Windows Systems|Microsoft Update Health Tools|Microsoft GameInput' } |
+$targets = 'Update for x64-based Windows Systems', 'Microsoft Update Health Tools', 'Microsoft GameInput'
+$pattern = ($targets | ForEach-Object { [regex]::Escape($_) }) -join '|'
+
+Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall' -ErrorAction SilentlyContinue |
+    Where-Object { $_.GetValue('DisplayName') -match $pattern } |
     ForEach-Object {
         if ($_.PSChildName) { Start-Process 'msiexec.exe' -ArgumentList "/x $($_.PSChildName) /qn /norestart" -Wait -NoNewWindow }
     }
-sc.exe delete 'uhssvc' *>$null
+
+$productKeys = Get-ChildItem 'HKCR:\Installer\Products' -ErrorAction SilentlyContinue | 
+    Where-Object { $_.GetValue('ProductName') -match $pattern }
+
+foreach ($key in $productKeys) {
+    $prodID = $key.PSChildName
+    Set-Reg -Path "-HKCR:\Installer\Products\$prodID"
+    Set-Reg -Path "-HKCR:\Installer\Features\$prodID"
+    Set-Reg -Path "-HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Products\$prodID"
+    
+    foreach ($path in @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UpgradeCodes', 'HKCR:\Installer\UpgradeCodes', 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Components')) {
+        Get-ChildItem $path -ErrorAction SilentlyContinue |
+            Where-Object { $_.GetValueNames() -contains $prodID } |
+            ForEach-Object { Set-Reg -Path "-$($_.Name)" }
+    }
+}
+
+Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall' -ErrorAction SilentlyContinue |
+    Where-Object { $_.GetValue('DisplayName') -match $pattern } |
+    ForEach-Object { Set-Reg -Path "-$($_.Name)" }
+
 Unregister-ScheduledTask -TaskName PLUGScheduler -Confirm:$false -ErrorAction SilentlyContinue
 
 # ════════════════════════════════════════════════════════════
