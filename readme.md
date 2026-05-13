@@ -5,8 +5,6 @@ a windows optimization script.
 this exists because i switch to windows to play cs2 and i want the
 os to stay out of the way. it runs once, reboots, done.
 
-discuss & contribute: [discord](https://www.discord.com/invite/a4A3hhZReW) - main hub for this and likely future projects (maybe [2singals](https://www.github.com/2signals)) ty.
-
 ## usage
 **playbook** — run elevated:
 ```powershell
