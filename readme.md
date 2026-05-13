@@ -2,6 +2,8 @@
 
 a bare-metal windows optimization script.
 
+**disclaimer**: use at your own risk. i accept no responsibility for any system damage or data loss. this script executes aggressive, non-reversible system modifications.
+
 **note**: my primary os is [omarchy](https://github.com/basecamp/omarchy). this exists because i boot windows solely to play cs2. i need the os completely out of the way. it runs once, reboots, and vanishes.
 
 ## prerequisites
