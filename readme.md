@@ -1,38 +1,62 @@
 # albuswin
-a windows optimization script.
 
-**note**: my main os is [omarchy](https://github.com/basecamp/omarchy).
-this exists because i switch to windows to play cs2 and i want the
-os to stay out of the way. it runs once, reboots, done.
+a bare-metal windows optimization script.
+
+**note**: my primary os is [omarchy](https://github.com/basecamp/omarchy). this exists because i boot windows solely to play cs2. i need the os completely out of the way. it runs once, reboots, and vanishes.
+
+## prerequisites
+
+- a clean, freshly installed windows 11 environment.
+- active internet connection (for dynamic driver and software deployment).
+- no prior debloat scripts applied (to prevent registry conflicts).
 
 ## usage
-**playbook** — run elevated:
+
+**playbook** — run from an elevated powershell instance:
 ```powershell
 irm https://raw.githubusercontent.com/oqullcan/albuswin/refs/heads/main/run.ps1 | iex
 ```
 
-**install media** — ventoy usb with autounattend, bypasses tpm/oobe:
+**install media** — build a ventoy usb with autounattend to bypass tpm and oobe requirements:
 ```powershell
 irm https://raw.githubusercontent.com/oqullcan/albuswin/refs/heads/main/usb.ps1 | iex
 ```
 
 ## what it does
-runs as `TrustedInstaller`. ~3000 lines of powershell. one pass, then reboot.
 
-- **software** — installs brave, 7-zip, vc++ redistributables, directx
-- **gpu** — strips driver package to essentials, silent install. nvidia: profile inspector preset applied
-- **registry** — ~400 keys across scheduling, mitigations, telemetry, input, ui
-- **security** — disables vbs/hvci, spectre/meltdown mitigations, dep/aslr/cfg system-wide
-- **scheduler** — `Win32PrioritySeparation=38`, 1:1 mouse curve, zero acceleration, zero animations
-- **services** — disables 30+ services (telemetry, print, remote desktop, sync, sysmain, ...)
-- **tasks** — disables 16 scheduled task groups (ceip, defrag, diagnostics, feedback, ...)
-- **network** — nagle off, interrupt moderation off, auto-tuning restricted, nic power saving off, dscp 46
-- **power** — custom plan: 100% min cpu, core parking off, heterogeneous scheduling off, all sleep off
-- **hardware** — msi mode on all pci, device power management off, exploit mitigations off
-- **filesystem** — 8.3 names off, last access off, platform clock removed, memory compression off
-- [**albusx**](service.md) — compiles and deploys native service (0.5ms timer, irq isolation, audio buffer min)
-- **debloat** — removes uwp, edge, onedrive, capabilities, telemetry binaries, 50+ dism packages
-- **cleanup** — clears all startup entries, temp directories, reboots
+executes as `trustedinstaller`. a ~3000-line, single-pass execution architecture. executes in the following structured sequence:
+
+- **preparation** — terminates interfering shell processes and resets consent storage locks.
+- **debloat** — aggressively uninstalls uwp bloatware, optional features, onedrive, and executes a total structural purge of microsoft edge.
+- **telemetry purge** — neutralizes ai binaries, nullifies locked telemetry components, and deletes 50+ unused dism packages from the component store.
+- **software** — silently deploys essential tools: brave, 7-zip, localsend, vc++ runtimes, and directx.
+- **gpu** — automated driver fetching, extraction, and debloating (nvidia, amd, intel). applies profile inspector presets and driver-level registry optimizations.
+- **registry** — overwrites ~400 keys covering boot optimizations, prefetch, uac, defender, edge policies, and visual effects.
+- **services** — permanently neutralizes 30+ background services.
+- **tasks** — wipes 16 scheduled task groups (ceip, defrag, diagnostics, telemetry).
+- **network** — disables nagle's algorithm, interrupt moderation, and auto-tuning. applies dscp 46 (expedited forwarding) and strict tcp parameters.
+- **power** — deploys a custom "albus" power plan. forces 100% min cpu, disables core parking, heterogeneous scheduling, sleep states, and usb selective suspend.
+- **hardware** — purges ghost devices, forces message signaled interrupts (msi) on all pci interfaces, and neutralizes exploit mitigations (spectre/meltdown/vbs/hvci).
+- **filesystem** — disables 8.3 naming, last access timestamps, platform clock, and memory compression.
+- **ui** — dynamically generates a true black wallpaper, forces system-wide dark mode, and aggressively strips shell animations.
+- **startup cleanup** — eradicates all driver and software installation leftovers, leaving zero traces.
+- [**albusb service**](#albusb) — compiles and deploys a native precision system latency daemon onto the cleansed environment.
+- **cleanup** — purges temporary directories, clears all event logs autonomously, and flushes dns before triggering a clean reboot.
+
+## albusb
+
+**note**: i am currently redesigning and rewriting this entire daemon from the ground up in rust for absolute flawlessness and extreme optimization.
+
+a custom, high-precision latency daemon deployed during the final stage. it runs silently in the background to enforce hardware operation at its absolute physical limits.
+
+- **cpu topology** — dynamically maps physical cores, e-cores, and numa nodes. calculates ideal processor affinities and isolates gpu/nic irqs to independent hardware threads.
+- **process watchdog** — utilizes event tracing for windows (etw) to autonomously detect target executables (e.g. cs2). instantly injects high priority, disables power throttling (ecoqos), and pins execution exclusively to p-cores.
+- **memory management** — acquires `selockmemoryprivilege` to allocate 4mb numa-aware large pages, locking critical kernel pools. acts as an aggressive memory manager, purging the standby list when available ram drops below 1gb.
+- **gpu enforcement** — hooks the undocumented `d3dkmt` api to force `realtime` scheduling priority directly onto the graphics kernel architecture.
+- **network qos** — actively negotiates native udp qos, forcing dscp 46 (expedited forwarding) on all outbound realtime traffic.
+- **audio limits** — interfaces directly with `iaudioclient3` via com. overrides shared mode engine periods to their minimum hardware capabilities and runs a real-time glitch/underrun detector.
+- **clock precision** — forces and locks a 0.5ms global kernel timer resolution (`ntsettimerresolution`) with a watchdog to correct drift. completely disables processor c-states and manipulates deferred procedure call (dpc) behavior.
 
 ## reversion
-no rollback. reinstall windows using the usb creator.
+
+no backups. no rollbacks. to revert, reinstall windows using the usb creator.
