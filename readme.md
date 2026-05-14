@@ -42,10 +42,10 @@ executes as `trustedinstaller`. a ~3000-line, single-pass execution architecture
 - **filesystem** — disables 8.3 naming, last access timestamps, platform clock, and memory compression.
 - **ui** — dynamically generates a true black wallpaper, forces system-wide dark mode, and aggressively strips shell animations.
 - **startup cleanup** — eradicates all driver and software installation leftovers, leaving zero traces.
-- [**albusb service**](#albusb) — compiles and deploys a native precision system latency daemon onto the cleansed environment.
+- [**albus service**](#albus-service) — compiles and deploys a native precision latency daemon for extreme hardware enforcement.
 - **cleanup** — purges temporary directories, clears all event logs autonomously, and flushes dns before triggering a clean reboot.
 
-## albusb
+## albus service
 
 **note**: i am currently redesigning and rewriting this entire daemon from the ground up in rust for absolute flawlessness and extreme optimization.
 
@@ -58,6 +58,12 @@ a custom, high-precision latency daemon deployed during the final stage. it runs
 - **network qos** — actively negotiates native udp qos, forcing dscp 46 (expedited forwarding) on all outbound realtime traffic.
 - **audio limits** — interfaces directly with `iaudioclient3` via com. overrides shared mode engine periods to their minimum hardware capabilities and runs a real-time glitch/underrun detector.
 - **clock precision** — forces and locks a 0.5ms global kernel timer resolution (`ntsettimerresolution`) with a watchdog to correct drift. completely disables processor c-states and manipulates deferred procedure call (dpc) behavior.
+
+## community
+
+i have recently established **og lab's** to cultivate a curated community around this research. while currently focused exclusively on **albuswin**, the space is designed to evolve. as the ecosystem grows, i may expand the hub to accommodate future projects or integrate the broader [2signals](https://github.com/2signals) organization.
+
+[join the discord](https://discord.gg/a4A3hhZReW)
 
 ## reversion
 
