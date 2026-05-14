@@ -1,10 +1,23 @@
 # albuswin
 
+![platform](https://img.shields.io/badge/platform-windows%2011-0078d4?style=flat-square)
+![engine](https://img.shields.io/badge/engine-powershell-5391fe?style=flat-square)
+![daemon](https://img.shields.io/badge/daemon-c%23%20%2F%20rust-black?style=flat-square)
+
 a bare-metal windows optimization script.
 
 **disclaimer**: use at your own risk. i accept no responsibility for any system damage or data loss. this script executes aggressive, non-reversible system modifications.
 
 **note**: my primary os is [omarchy](https://github.com/basecamp/omarchy). this exists because i boot windows solely to play cs2. i need the os completely out of the way. it runs once, reboots, and vanishes.
+
+## table of contents
+
+1. [prerequisites](#prerequisites)
+2. [usage](#usage)
+3. [what it does](#what-it-does)
+4. [albus daemon](#albus-daemon)
+5. [community](#community)
+6. [reversion](#reversion)
 
 ## prerequisites
 
@@ -42,14 +55,14 @@ executes as `trustedinstaller`. a ~3000-line, single-pass execution architecture
 - **filesystem** — disables 8.3 naming, last access timestamps, platform clock, and memory compression.
 - **ui** — dynamically generates a true black wallpaper, forces system-wide dark mode, and aggressively strips shell animations.
 - **startup cleanup** — eradicates all driver and software installation leftovers, leaving zero traces.
-- [**albus service**](#albus-service) — compiles and deploys a native precision latency daemon for extreme hardware enforcement.
+- [**albus daemon**](#albus-daemon) — compiles and deploys a native precision latency daemon for extreme hardware enforcement.
 - **cleanup** — purges temporary directories, clears all event logs autonomously, and flushes dns before triggering a clean reboot.
 
-## albus service
+## albus daemon
 
-**note**: i am currently redesigning and rewriting this entire daemon from the ground up in rust for absolute flawlessness and extreme optimization.
+**status**: the entire daemon is being rewritten in **rust** for absolute memory safety and zero-latency execution.
 
-a custom, high-precision latency daemon deployed during the final stage. it runs silently in the background to enforce hardware operation at its absolute physical limits.
+a custom, high-precision latency controller deployed as the final optimization layer. it operates at the edge of physical hardware limits to enforce absolute system stability and responsiveness.
 
 - **cpu topology** — dynamically maps physical cores, e-cores, and numa nodes. calculates ideal processor affinities and isolates gpu/nic irqs to independent hardware threads.
 - **process watchdog** — utilizes event tracing for windows (etw) to autonomously detect target executables (e.g. cs2). instantly injects high priority, disables power throttling (ecoqos), and pins execution exclusively to p-cores.
