@@ -285,9 +285,62 @@ if (Test-Network) {
         $rel = (Invoke-RestMethod 'https://api.github.com/repos/brave/brave-browser/releases/latest')
         Get-File "https://github.com/brave/brave-browser/releases/latest/download/BraveBrowserStandaloneSetup.exe" "$ALBUS_DIR\BraveSetup.exe"
         Start-Process -Wait "$ALBUS_DIR\BraveSetup.exe" -ArgumentList '/silent /install' -WindowStyle Hidden
-        Set-Reg 'HKLM:\SOFTWARE\Policies\BraveSoftware\Brave' 'HardwareAccelerationModeEnabled' 0
-        Set-Reg 'HKLM:\SOFTWARE\Policies\BraveSoftware\Brave' 'BackgroundModeEnabled'           0
-        Set-Reg 'HKLM:\SOFTWARE\Policies\BraveSoftware\Brave' 'HighEfficiencyModeEnabled'       1
+        $bravePolicy = 'HKLM:\SOFTWARE\Policies\BraveSoftware\Brave'
+        Remove-Item -Path $bravePolicy -Recurse -Force -ErrorAction SilentlyContinue
+        Set-Regs @(
+            # telemetry & privacy
+            @{ Path = $bravePolicy; Name = 'MetricsReportingEnabled'; Value = 0 }
+            @{ Path = $bravePolicy; Name = 'SafeBrowsingExtendedReportingEnabled'; Value = 0 }
+            @{ Path = $bravePolicy; Name = 'UrlKeyedAnonymizedDataCollectionEnabled'; Value = 0 }
+            @{ Path = $bravePolicy; Name = 'BraveP3AEnabled'; Value = 0 }
+            @{ Path = $bravePolicy; Name = 'BraveStatsPingEnabled'; Value = 0 }
+            @{ Path = $bravePolicy; Name = 'SafeBrowsingProtectionLevel'; Value = 0 }
+            @{ Path = $bravePolicy; Name = 'AutofillAddressEnabled'; Value = 0 }
+            @{ Path = $bravePolicy; Name = 'AutofillCreditCardEnabled'; Value = 0 }
+            @{ Path = $bravePolicy; Name = 'PasswordManagerEnabled'; Value = 0 }
+            @{ Path = $bravePolicy; Name = 'BrowserSignin'; Value = 0 }
+            @{ Path = $bravePolicy; Name = 'EnableDoNotTrack'; Value = 1 }
+            @{ Path = $bravePolicy; Name = 'BraveGlobalPrivacyControlEnabled'; Value = 1 }
+            @{ Path = $bravePolicy; Name = 'BraveDeAmpEnabled'; Value = 1 }
+            @{ Path = $bravePolicy; Name = 'BraveDebouncingEnabled'; Value = 1 }
+            @{ Path = $bravePolicy; Name = 'BraveTrackingQueryParametersFilteringEnabled'; Value = 1 }
+            @{ Path = $bravePolicy; Name = 'BraveReduceLanguageEnabled'; Value = 1 }
+            @{ Path = $bravePolicy; Name = 'WebRtcIPHandling'; Value = 'disable_non_proxied_udp'; Type = 'String' }
+            @{ Path = $bravePolicy; Name = 'QuicAllowed'; Value = 0 }
+            @{ Path = $bravePolicy; Name = 'BlockThirdPartyCookies'; Value = 1 }
+            @{ Path = $bravePolicy; Name = 'ForceGoogleSafeSearch'; Value = 1 }
+            @{ Path = $bravePolicy; Name = 'HttpsOnlyMode'; Value = 1 }
+            @{ Path = $bravePolicy; Name = 'DnsOverHttpsMode'; Value = 'secure'; Type = 'String' }
+            @{ Path = $bravePolicy; Name = 'DnsOverHttpsTemplates'; Value = 'https://dns.quad9.net/dns-query'; Type = 'String' }
+            # feature neutralization
+            @{ Path = $bravePolicy; Name = 'BraveRewardsDisabled'; Value = 1 }
+            @{ Path = $bravePolicy; Name = 'BraveWalletDisabled'; Value = 1 }
+            @{ Path = $bravePolicy; Name = 'BraveVPNDisabled'; Value = 1 }
+            @{ Path = $bravePolicy; Name = 'BraveAIChatEnabled'; Value = 0 }
+            @{ Path = $bravePolicy; Name = 'BraveNewsDisabled'; Value = 1 }
+            @{ Path = $bravePolicy; Name = 'BraveTalkDisabled'; Value = 1 }
+            @{ Path = $bravePolicy; Name = 'BravePlaylistEnabled'; Value = 0 }
+            @{ Path = $bravePolicy; Name = 'BraveWebDiscoveryEnabled'; Value = 0 }
+            @{ Path = $bravePolicy; Name = 'BraveSpeedreaderEnabled'; Value = 0 }
+            @{ Path = $bravePolicy; Name = 'TorDisabled'; Value = 1 }
+            @{ Path = $bravePolicy; Name = 'SyncDisabled'; Value = 1 }
+            @{ Path = $bravePolicy; Name = 'IPFSEnabled'; Value = 0 }
+            @{ Path = $bravePolicy; Name = 'BackgroundModeEnabled'; Value = 0 }
+            @{ Path = $bravePolicy; Name = 'ShoppingListEnabled'; Value = 0 }
+            @{ Path = $bravePolicy; Name = 'AlwaysOpenPdfExternally'; Value = 1 }
+            @{ Path = $bravePolicy; Name = 'TranslateEnabled'; Value = 0 }
+            @{ Path = $bravePolicy; Name = 'SpellcheckEnabled'; Value = 0 }
+            @{ Path = $bravePolicy; Name = 'SearchSuggestEnabled'; Value = 0 }
+            @{ Path = $bravePolicy; Name = 'PrintingEnabled'; Value = 0 }
+            @{ Path = $bravePolicy; Name = 'DefaultBrowserSettingEnabled'; Value = 0 }
+            @{ Path = $bravePolicy; Name = 'DeveloperToolsAvailability'; Value = 2 }
+            @{ Path = $bravePolicy; Name = 'BraveWaybackMachineEnabled'; Value = 0 }
+            @{ Path = $bravePolicy; Name = 'HardwareAccelerationModeEnabled'; Value = 1 }
+            @{ Path = $bravePolicy; Name = 'HighEfficiencyModeEnabled'; Value = 1 }
+            @{ Path = $bravePolicy; Name = 'BlockExternalExtensions'; Value = 1 }
+            @{ Path = $bravePolicy; Name = 'SavingBrowserHistoryDisabled'; Value = 0 }
+            @{ Path = "$bravePolicy\ExtensionInstallForcelist"; Name = '1'; Value = 'nngceckbapebfimnlniiiahkandclblb;https://clients2.google.com/service/update2/crx'; Type = 'String' } # bitwarden
+        )
         Write-Step "brave $($rel.tag_name) installed" 'ok'
     } catch { Write-Step 'brave installation failed' 'fail' }
     # 2.2  7-zip
