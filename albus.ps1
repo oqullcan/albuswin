@@ -294,7 +294,7 @@ if (Test-Network) {
             @{ Path = $bravePolicy; Name = 'UrlKeyedAnonymizedDataCollectionEnabled'; Value = 0 }
             @{ Path = $bravePolicy; Name = 'BraveP3AEnabled'; Value = 0 }
             @{ Path = $bravePolicy; Name = 'BraveStatsPingEnabled'; Value = 0 }
-            @{ Path = $bravePolicy; Name = 'SafeBrowsingProtectionLevel'; Value = 0 }
+            @{ Path = $bravePolicy; Name = 'SafeBrowsingProtectionLevel'; Value = 1 }
             @{ Path = $bravePolicy; Name = 'AutofillAddressEnabled'; Value = 0 }
             @{ Path = $bravePolicy; Name = 'AutofillCreditCardEnabled'; Value = 0 }
             @{ Path = $bravePolicy; Name = 'PasswordManagerEnabled'; Value = 0 }
